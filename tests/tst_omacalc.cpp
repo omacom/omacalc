@@ -23,6 +23,10 @@ private slots:
                            m_settingsDirectory.path());
     }
 
+    void init() {
+        QSettings().remove(QStringLiteral("calculator/rpnMode"));
+    }
+
     void startsAtZero() {
         Backend calculator;
         QCOMPARE(calculator.display(), QStringLiteral("0"));
@@ -250,6 +254,119 @@ private slots:
         QCOMPARE(calculator.themeAccent(), QStringLiteral("#112233"));
         QCOMPARE(calculator.themeSelection(), QStringLiteral("#445566"));
         QVERIFY(!calculator.darkMode());
+    }
+
+    void rpnAddsAndMultipliesInStackOrder() {
+        Backend calculator;
+        calculator.setRpnMode(true);
+
+        // 3 ENTER 4 + is 7; then 5 × is (3 + 4) × 5.
+        press(calculator, "3 = 4 +");
+        QCOMPARE(calculator.display(), QStringLiteral("7"));
+        QCOMPARE(calculator.expression(), QStringLiteral("7"));
+
+        press(calculator, "5 ×");
+        QCOMPARE(calculator.display(), QStringLiteral("35"));
+    }
+
+    void rpnKeepsPendingStackVisible() {
+        Backend calculator;
+        calculator.setRpnMode(true);
+
+        press(calculator, "2 = 3 = 4 +");
+        QCOMPARE(calculator.display(), QStringLiteral("7"));
+        QCOMPARE(calculator.expression(), QStringLiteral("2 7"));
+
+        press(calculator, "×");
+        QCOMPARE(calculator.display(), QStringLiteral("14"));
+        QCOMPARE(calculator.expression(), QStringLiteral("14"));
+    }
+
+    void rpnEnterDuplicatesTop() {
+        Backend calculator;
+        calculator.setRpnMode(true);
+
+        press(calculator, "6 = = ×");
+        QCOMPARE(calculator.display(), QStringLiteral("36"));
+    }
+
+    void rpnOperatorPushesCurrentEntry() {
+        Backend calculator;
+        calculator.setRpnMode(true);
+
+        // No Enter after the second operand: 3 ENTER 4 + still works.
+        press(calculator, "3 = 4 + 2 ×");
+        QCOMPARE(calculator.display(), QStringLiteral("14"));
+    }
+
+    void rpnSwapAndDrop() {
+        Backend calculator;
+        calculator.setRpnMode(true);
+
+        press(calculator, "3 = 4 swap -");
+        QCOMPARE(calculator.display(), QStringLiteral("1"));
+
+        press(calculator, "clear 9 = 8 backspace");
+        QCOMPARE(calculator.display(), QStringLiteral("9"));
+        QCOMPARE(calculator.expression(), QStringLiteral("9"));
+    }
+
+    void rpnPercentAndSign() {
+        Backend calculator;
+        calculator.setRpnMode(true);
+
+        press(calculator, "5 0 %");
+        QCOMPARE(calculator.display(), QStringLiteral("0.5"));
+
+        press(calculator, "clear 8 = sign");
+        QCOMPARE(calculator.display(), QStringLiteral("-8"));
+    }
+
+    void rpnDivisionByZeroErrors() {
+        Backend calculator;
+        calculator.setRpnMode(true);
+
+        press(calculator, "1 = 0 ÷");
+        QCOMPARE(calculator.display(), QStringLiteral("Error"));
+
+        press(calculator, "5");
+        QCOMPARE(calculator.display(), QStringLiteral("5"));
+        QVERIFY(calculator.rpnMode());
+    }
+
+    void rpnDigitAfterResultStartsNewEntry() {
+        Backend calculator;
+        calculator.setRpnMode(true);
+
+        press(calculator, "3 = 4 +");
+        QCOMPARE(calculator.display(), QStringLiteral("7"));
+
+        press(calculator, "2");
+        QCOMPARE(calculator.display(), QStringLiteral("2"));
+        QCOMPARE(calculator.expression(), QStringLiteral("7 2"));
+    }
+
+    void togglingModeKeepsTheCurrentValue() {
+        Backend calculator;
+        press(calculator, "4 2");
+        calculator.setRpnMode(true);
+        QVERIFY(calculator.rpnMode());
+        QCOMPARE(calculator.display(), QStringLiteral("42"));
+
+        press(calculator, "3 +");
+        QCOMPARE(calculator.display(), QStringLiteral("45"));
+
+        calculator.setRpnMode(false);
+        QVERIFY(!calculator.rpnMode());
+        QCOMPARE(calculator.display(), QStringLiteral("45"));
+    }
+
+    void infixStillWorksWhenRpnIsOff() {
+        Backend calculator;
+        QVERIFY(!calculator.rpnMode());
+        press(calculator, "4 2 × 3 + 7 =");
+        QCOMPARE(calculator.display(), QStringLiteral("133"));
+        QCOMPARE(calculator.expression(), QStringLiteral("42 × 3 + 7"));
     }
 
 private:

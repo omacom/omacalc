@@ -20,6 +20,8 @@ Rectangle {
         if (label === "AC") return "All clear";
         if (label === "±") return "Toggle sign";
         if (label === "%") return "Percent";
+        if (label === "↕") return "Swap";
+        if (label === "ENT") return "Enter";
         if (label === "÷") return "Divide";
         if (label === "×") return "Multiply";
         if (label === "−") return "Subtract";

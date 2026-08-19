@@ -11,7 +11,7 @@ ApplicationWindow {
     minimumWidth: 300
     minimumHeight: 430
     visible: true
-    title: "Omacalc"
+    title: backend.rpnMode ? "Omacalc · RPN" : "Omacalc"
 
     readonly property bool darkMode: backend.darkMode
     readonly property color pageColor: backend.themeBackground
@@ -94,6 +94,12 @@ ApplicationWindow {
                 backend.pressKey("sign");
             } else if (event.text === "c" || event.text === "C") {
                 backend.pressKey("clear");
+            } else if (event.text === "r" || event.text === "R") {
+                backend.toggleRpnMode();
+            } else if (backend.rpnMode
+                       && (event.key === Qt.Key_Tab
+                           || event.text === "w" || event.text === "W")) {
+                backend.pressKey("swap");
             } else if (/^[0-9+\-*/%]$/.test(event.text)) {
                 backend.pressKey(event.text);
             } else {
@@ -113,10 +119,33 @@ ApplicationWindow {
             anchors.bottomMargin: win.scaledSize(24)
 
             Text {
+                id: modeToggle
+                anchors.top: parent.top
+                anchors.right: parent.right
+                text: "RPN"
+                color: backend.rpnMode ? backend.themeAccent : win.mutedColor
+                font.family: "iA Writer Mono S"
+                font.pixelSize: win.scaledSize(16)
+                Accessible.role: Accessible.Button
+                Accessible.name: backend.rpnMode
+                    ? "Reverse Polish Notation on"
+                    : "Reverse Polish Notation off"
+                Accessible.onPressAction: backend.toggleRpnMode()
+
+                MouseArea {
+                    anchors.fill: parent
+                    anchors.margins: win.scaledSize(-8)
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: backend.toggleRpnMode()
+                }
+            }
+
+            Text {
                 id: expressionText
                 anchors.top: parent.top
                 anchors.left: parent.left
-                anchors.right: parent.right
+                anchors.right: modeToggle.left
+                anchors.rightMargin: win.scaledSize(12)
                 text: backend.expression
                 color: win.mutedColor
                 elide: Text.ElideLeft
@@ -159,7 +188,28 @@ ApplicationWindow {
             columnSpacing: win.scaledSize(12)
 
             Repeater {
-                model: [
+                model: backend.rpnMode ? [
+                    { label: "AC", key: "clear", kind: "number" },
+                    { label: "±", key: "sign", kind: "number" },
+                    { label: "↕", key: "swap", kind: "number" },
+                    { label: "÷", key: "÷", kind: "operator" },
+                    { label: "7", key: "7", kind: "number" },
+                    { label: "8", key: "8", kind: "number" },
+                    { label: "9", key: "9", kind: "number" },
+                    { label: "×", key: "×", kind: "operator" },
+                    { label: "4", key: "4", kind: "number" },
+                    { label: "5", key: "5", kind: "number" },
+                    { label: "6", key: "6", kind: "number" },
+                    { label: "−", key: "-", kind: "operator" },
+                    { label: "1", key: "1", kind: "number" },
+                    { label: "2", key: "2", kind: "number" },
+                    { label: "3", key: "3", kind: "number" },
+                    { label: "+", key: "+", kind: "operator" },
+                    { label: "0", key: "0", kind: "number" },
+                    { label: ".", key: ".", kind: "number" },
+                    { label: "", key: "backspace", kind: "number", icon: "backspace" },
+                    { label: "ENT", key: "=", kind: "equals" }
+                ] : [
                     { label: "AC", key: "clear", kind: "number" },
                     { label: "±", key: "sign", kind: "number" },
                     { label: "%", key: "%", kind: "number" },

@@ -27,8 +27,15 @@ Everything works from the keyboard too:
 - `Backspace` deletes the last digit.
 - `C` or `Escape` clears.
 - `S` toggles the sign.
+- `R` toggles Reverse Polish Notation mode.
 - `Ctrl+C` or `Super+C` copies the result.
 - `Ctrl+V` or `Super+V` pastes a number.
+
+Click **RPN** in the display (or press `R`) to switch to stack-based entry.
+Numbers go on the stack with `ENT`, and operators apply immediately to the
+top two values: `3 ENT 4 +` is 7. Empty `ENT` duplicates the top of the
+stack, `↕` swaps the top two values, and backspace with no current entry
+drops the top. The last chosen mode is remembered.
 
 Colors follow the current Omarchy theme (`~/.local/state/omarchy/current/theme/colors.toml`)
 and re-tint live when the theme changes. Text follows the desktop text size —

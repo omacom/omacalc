@@ -38,6 +38,7 @@ QString sealNumber(const QString &entry) {
 }
 
 Backend::Backend(QObject *parent) : QObject(parent) {
+    m_rpnMode = QSettings().value(QStringLiteral("calculator/rpnMode"), false).toBool();
     loadOmarchyTheme();
     watchOmarchyTheme();
     connect(&m_themeWatcher, &QFileSystemWatcher::fileChanged, this, [this]() {
@@ -51,6 +52,8 @@ Backend::Backend(QObject *parent) : QObject(parent) {
 }
 
 QString Backend::expression() const {
+    if (m_rpnMode)
+        return rpnExpression();
     if (m_errored || m_justEvaluated)
         return m_evaluatedExpression;
     return prettyExpression(m_tokens);
@@ -61,9 +64,26 @@ QString Backend::display() const {
         return QStringLiteral("Error");
     if (!m_entry.isEmpty())
         return m_entry;
+    if (m_rpnMode) {
+        if (!m_stack.isEmpty())
+            return formatNumber(QLocale::c().toDouble(m_stack.last()));
+        return QStringLiteral("0");
+    }
     if (m_justEvaluated)
         return m_result;
     return formatNumber(QLocale::c().toDouble(currentValue()));
+}
+
+QString Backend::rpnExpression() const {
+    if (m_errored)
+        return m_evaluatedExpression;
+
+    QString expression = prettyExpression(m_stack);
+    if (m_entry.isEmpty())
+        return expression;
+    if (expression.isEmpty())
+        return m_entry;
+    return expression + QLatin1Char(' ') + m_entry;
 }
 
 // Operand tokens carry full round-trip precision when they come from a chained
@@ -112,6 +132,8 @@ void Backend::pressKey(const QString &key) {
         pressBackspace();
     } else if (key == QStringLiteral("clear")) {
         pressClear();
+    } else if (key == QStringLiteral("swap")) {
+        pressSwap();
     } else {
         return;
     }
@@ -123,9 +145,12 @@ void Backend::pressDigit(const QString &digit) {
     if (m_errored)
         pressClear();
     if (m_justEvaluated) {
-        // A digit after equals starts a new calculation rather than
-        // appending to the result.
-        pressClear();
+        // Infix: a digit after equals starts a new calculation rather than
+        // appending to the result. RPN keeps the stack and starts a new entry.
+        if (m_rpnMode)
+            m_justEvaluated = false;
+        else
+            pressClear();
     }
 
     if (m_entry == QStringLiteral("0")) {
@@ -155,8 +180,12 @@ void Backend::pressDigit(const QString &digit) {
 void Backend::pressDecimal() {
     if (m_errored)
         pressClear();
-    if (m_justEvaluated)
-        pressClear();
+    if (m_justEvaluated) {
+        if (m_rpnMode)
+            m_justEvaluated = false;
+        else
+            pressClear();
+    }
 
     if (m_entry.isEmpty())
         m_entry = QStringLiteral("0.");
@@ -167,6 +196,44 @@ void Backend::pressDecimal() {
 void Backend::pressOperator(const QString &pretty) {
     if (m_errored)
         return;
+
+    if (m_rpnMode) {
+        pushEntry();
+        if (m_stack.size() < 2)
+            return;
+
+        bool rightOk = false;
+        bool leftOk = false;
+        const double right = QLocale::c().toDouble(m_stack.takeLast(), &rightOk);
+        const double left = QLocale::c().toDouble(m_stack.takeLast(), &leftOk);
+        if (!rightOk || !leftOk) {
+            m_errored = true;
+            m_evaluatedExpression.clear();
+            return;
+        }
+
+        double value = 0;
+        if (pretty == plusSign)
+            value = left + right;
+        else if (pretty == minusSign)
+            value = left - right;
+        else if (pretty == multiplySign)
+            value = left * right;
+        else if (pretty == divideSign)
+            value = left / right;
+
+        if (!std::isfinite(value)) {
+            m_evaluatedExpression = prettyExpression(m_stack);
+            m_errored = true;
+            return;
+        }
+
+        m_stack << QString::number(value, 'g', 17);
+        m_resultValue = value;
+        m_result = formatNumber(value);
+        m_justEvaluated = true;
+        return;
+    }
 
     if (m_justEvaluated) {
         // Chain from the exact result value, not its rounded display text, so
@@ -189,6 +256,20 @@ void Backend::pressOperator(const QString &pretty) {
 }
 
 void Backend::pressEquals() {
+    if (m_rpnMode) {
+        if (m_errored)
+            return;
+        if (!m_entry.isEmpty()) {
+            pushEntry();
+        } else if (!m_stack.isEmpty()) {
+            // Empty Enter duplicates the top of the stack, matching the usual
+            // RPN "x ENT ×" square.
+            m_stack << m_stack.last();
+        }
+        m_justEvaluated = false;
+        return;
+    }
+
     if (m_errored || m_justEvaluated)
         return;
 
@@ -221,6 +302,25 @@ void Backend::pressPercent() {
     if (m_errored)
         return;
 
+    if (m_rpnMode) {
+        if (m_justEvaluated)
+            m_justEvaluated = false;
+        if (!m_entry.isEmpty()) {
+            bool ok = false;
+            const double value = QLocale::c().toDouble(sealNumber(m_entry), &ok);
+            if (ok)
+                m_entry = formatNumber(value / 100.0);
+            return;
+        }
+        if (!m_stack.isEmpty()) {
+            bool ok = false;
+            const double value = QLocale::c().toDouble(m_stack.last(), &ok);
+            if (ok)
+                m_stack.last() = QString::number(value / 100.0, 'g', 17);
+        }
+        return;
+    }
+
     if (m_justEvaluated) {
         const double percent = m_resultValue / 100.0;
         clearEvaluation();
@@ -248,6 +348,28 @@ void Backend::pressPercent() {
 void Backend::pressToggleSign() {
     if (m_errored)
         return;
+
+    if (m_rpnMode) {
+        if (m_justEvaluated)
+            m_justEvaluated = false;
+        if (!m_entry.isEmpty()) {
+            if (m_entry.startsWith(QLatin1Char('-')))
+                m_entry.remove(0, 1);
+            else
+                m_entry.prepend(QLatin1Char('-'));
+            return;
+        }
+        if (!m_stack.isEmpty()) {
+            bool ok = false;
+            const double value = QLocale::c().toDouble(m_stack.last(), &ok);
+            if (ok)
+                m_stack.last() = QString::number(-value, 'g', 17);
+            return;
+        }
+        m_entry = QStringLiteral("-0");
+        return;
+    }
+
     if (m_justEvaluated)
         beginEditingAfterResult();
 
@@ -269,6 +391,20 @@ void Backend::pressBackspace() {
         pressClear();
         return;
     }
+
+    if (m_rpnMode) {
+        if (!m_entry.isEmpty()) {
+            m_entry.chop(1);
+            if (m_entry == QStringLiteral("-"))
+                m_entry.clear();
+            return;
+        }
+        if (!m_stack.isEmpty())
+            m_stack.removeLast();
+        m_justEvaluated = false;
+        return;
+    }
+
     if (m_justEvaluated)
         beginEditingAfterResult();
 
@@ -279,9 +415,69 @@ void Backend::pressBackspace() {
 
 void Backend::pressClear() {
     m_tokens.clear();
+    m_stack.clear();
     m_entry.clear();
     clearEvaluation();
     m_errored = false;
+}
+
+void Backend::pushEntry() {
+    if (m_entry.isEmpty())
+        return;
+    m_stack << sealNumber(m_entry);
+    m_entry.clear();
+    m_justEvaluated = false;
+}
+
+void Backend::pressSwap() {
+    if (!m_rpnMode || m_errored)
+        return;
+
+    pushEntry();
+    if (m_stack.size() < 2)
+        return;
+
+    const int last = m_stack.size() - 1;
+    m_stack.swapItemsAt(last - 1, last);
+    m_justEvaluated = false;
+}
+
+void Backend::toggleRpnMode() {
+    setRpnMode(!m_rpnMode);
+}
+
+void Backend::setRpnMode(bool rpnMode) {
+    if (m_rpnMode == rpnMode)
+        return;
+
+    QString seed;
+    if (!m_errored) {
+        if (m_rpnMode) {
+            if (!m_entry.isEmpty())
+                seed = sealNumber(m_entry);
+            else if (!m_stack.isEmpty())
+                seed = m_stack.last();
+        } else if (m_justEvaluated) {
+            seed = QString::number(m_resultValue, 'g', 17);
+        } else if (!m_entry.isEmpty()) {
+            seed = sealNumber(m_entry);
+        } else if (!m_tokens.isEmpty()) {
+            seed = currentValue();
+        }
+    }
+
+    m_rpnMode = rpnMode;
+    pressClear();
+    if (!seed.isEmpty() && seed != QStringLiteral("0")) {
+        if (m_rpnMode)
+            m_stack << seed;
+        else
+            m_entry = formatNumber(QLocale::c().toDouble(seed));
+    }
+
+    QSettings().setValue(QStringLiteral("calculator/rpnMode"), m_rpnMode);
+    emit rpnModeChanged();
+    emit calculationChanged();
 }
 
 // Editing after equals picks up from the result's displayed digits, with the
@@ -387,8 +583,12 @@ void Backend::pasteNumber() {
     if (!ok || !std::isfinite(value))
         return;
 
-    if (m_errored || m_justEvaluated)
+    if (m_errored)
         pressClear();
+    else if (m_justEvaluated && !m_rpnMode)
+        pressClear();
+    else if (m_justEvaluated)
+        m_justEvaluated = false;
     m_entry = formatNumber(value);
     emit calculationChanged();
 }

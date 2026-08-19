@@ -16,12 +16,17 @@ class Backend : public QObject {
     Q_PROPERTY(QString themeForeground READ themeForeground NOTIFY themeColorsChanged)
     Q_PROPERTY(QString themeAccent READ themeAccent NOTIFY themeColorsChanged)
     Q_PROPERTY(QString themeSelection READ themeSelection NOTIFY themeColorsChanged)
+    Q_PROPERTY(bool rpnMode READ rpnMode WRITE setRpnMode NOTIFY rpnModeChanged)
 
 public:
     explicit Backend(QObject *parent = nullptr);
 
     QString expression() const;
     QString display() const;
+
+    bool rpnMode() const { return m_rpnMode; }
+    void setRpnMode(bool rpnMode);
+    Q_INVOKABLE void toggleRpnMode();
 
     bool darkMode() const { return m_darkMode; }
     void setDarkMode(bool darkMode);
@@ -43,6 +48,7 @@ public:
 
 signals:
     void calculationChanged();
+    void rpnModeChanged();
     void darkModeChanged();
     void textScaleChanged();
     void themeColorsChanged();
@@ -56,8 +62,11 @@ private:
     void pressToggleSign();
     void pressBackspace();
     void pressClear();
+    void pressSwap();
+    void pushEntry();
 
     QString currentValue() const;
+    QString rpnExpression() const;
     void beginEditingAfterResult();
     void clearEvaluation();
     static QString prettyExpression(const QStringList &tokens);
@@ -65,12 +74,14 @@ private:
     void watchOmarchyTheme();
 
     QStringList m_tokens;
+    QStringList m_stack;
     QString m_entry;
     QString m_result;
     double m_resultValue = 0;
     QString m_evaluatedExpression;
     bool m_justEvaluated = false;
     bool m_errored = false;
+    bool m_rpnMode = false;
 
     bool m_darkMode = true;
     qreal m_textScale = 1.0;
