@@ -134,7 +134,7 @@ ApplicationWindow {
 
                 MouseArea {
                     anchors.fill: parent
-                    anchors.margins: win.scaledSize(-8)
+                    anchors.margins: -win.scaledSize(8)
                     cursorShape: Qt.PointingHandCursor
                     onClicked: backend.toggleRpnMode()
                 }
