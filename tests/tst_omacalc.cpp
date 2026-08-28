@@ -72,6 +72,13 @@ private slots:
         press(calculator, "clear ( 2 + 3 )");
         QCOMPARE(calculator.display(), QStringLiteral("5"));
 
+        // A closed group remains the current value while its enclosing group
+        // is still open, and after an operator is entered.
+        press(calculator, "clear ( ( 2 + 3 )");
+        QCOMPARE(calculator.display(), QStringLiteral("5"));
+        press(calculator, "clear ( 2 + 3 ) ×");
+        QCOMPARE(calculator.display(), QStringLiteral("5"));
+
         // An unbalanced group is incomplete, not silently auto-closed.
         press(calculator, "clear ( 2 + 3 =");
         QCOMPARE(calculator.display(), QStringLiteral("Error"));
@@ -89,6 +96,29 @@ private slots:
         QCOMPARE(calculator.expression(), QStringLiteral("(0 − 3 + 4)"));
         press(calculator, "clear ( 2 + 3 ) × ( - 1 + 4 ) =");
         QCOMPARE(calculator.display(), QStringLiteral("15"));
+    }
+
+    void percentWithParentheses() {
+        Backend calculator;
+
+        // Percent applies to a closed group as one operand.
+        press(calculator, "( 2 + 3 ) % =");
+        QCOMPARE(calculator.display(), QStringLiteral("0.05"));
+
+        press(calculator, "clear 2 × ( 3 + 4 ) % =");
+        QCOMPARE(calculator.display(), QStringLiteral("0.14"));
+
+        // A grouped operand still uses the pending additive base.
+        press(calculator, "clear 2 0 0 + ( 1 0 ) % =");
+        QCOMPARE(calculator.display(), QStringLiteral("220"));
+
+        // A pending additive operator inside a group uses that group's running
+        // total, even when the group is nested in a larger expression.
+        press(calculator, "clear ( 2 0 0 + 1 0 % ) =");
+        QCOMPARE(calculator.display(), QStringLiteral("220"));
+
+        press(calculator, "clear 1 0 0 + ( 2 0 0 + 1 0 % ) =");
+        QCOMPARE(calculator.display(), QStringLiteral("320"));
     }
 
     void showsEntryWhileTyping() {

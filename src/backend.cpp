@@ -31,6 +31,35 @@ bool isParen(const QString &token) {
     return token == openParen || token == closeParen;
 }
 
+int matchingOpenParen(const QStringList &tokens, int closeIndex) {
+    int depth = 0;
+    for (int i = closeIndex; i >= 0; --i) {
+        if (tokens.at(i) == closeParen) {
+            ++depth;
+        } else if (tokens.at(i) == openParen && --depth == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+// Return the first token in the innermost group that is still open. This lets
+// calculator operations work on the local running total without trying to
+// evaluate the incomplete outer expression.
+int openGroupExpressionStart(const QStringList &tokens) {
+    int depth = 0;
+    for (int i = tokens.size() - 1; i >= 0; --i) {
+        if (tokens.at(i) == closeParen) {
+            ++depth;
+        } else if (tokens.at(i) == openParen) {
+            if (depth == 0)
+                return i + 1;
+            --depth;
+        }
+    }
+    return 0;
+}
+
 // Recursive-descent parser over the flat token list, giving × and ÷ their
 // usual precedence over + and − and letting parentheses override both.
 double parseExpression(const QStringList &tokens, int &pos, bool &ok);
@@ -159,17 +188,21 @@ QString Backend::currentValue() const {
     if (!m_entry.isEmpty())
         return sealNumber(m_entry);
 
-    // If the tokens so far already form a complete expression -- notably
-    // right after a closing paren -- show its evaluated total rather than
-    // whatever plain number happens to sit last in the token list.
-    bool ok = false;
-    const double value = evaluateTokens(m_tokens, &ok);
-    if (ok)
-        return QString::number(value, 'g', 17);
-
     for (int i = m_tokens.size() - 1; i >= 0; --i) {
         const QString &token = m_tokens.at(i);
-        if (!isOperator(token) && !isParen(token))
+        if (isOperator(token) || token == openParen)
+            continue;
+        if (token == closeParen) {
+            const int start = matchingOpenParen(m_tokens, i);
+            if (start >= 0) {
+                bool ok = false;
+                const double value = evaluateTokens(m_tokens.mid(start, i - start + 1), &ok);
+                if (ok)
+                    return QString::number(value, 'g', 17);
+            }
+            continue;
+        }
+        if (!isParen(token))
             return token;
     }
     return QStringLiteral("0");
@@ -321,7 +354,22 @@ void Backend::pressPercent() {
     }
 
     bool ok = false;
-    const double value = QLocale::c().toDouble(currentValue(), &ok);
+    double value = 0;
+
+    // Treat a just-closed group as the current operand. Remove its source
+    // tokens so the calculated percentage can take its place without leaving
+    // two adjacent operands, e.g. "(2 + 3) 0.05".
+    if (m_entry.isEmpty() && !m_tokens.isEmpty() && m_tokens.last() == closeParen) {
+        const int close = m_tokens.size() - 1;
+        const int open = matchingOpenParen(m_tokens, close);
+        if (open < 0)
+            return;
+        value = evaluateTokens(m_tokens.mid(open, close - open + 1), &ok);
+        if (ok)
+            m_tokens.erase(m_tokens.begin() + open, m_tokens.end());
+    } else {
+        value = QLocale::c().toDouble(currentValue(), &ok);
+    }
     if (!ok)
         return;
 
@@ -329,6 +377,7 @@ void Backend::pressPercent() {
     if (!m_tokens.isEmpty() && (m_tokens.last() == plusSign || m_tokens.last() == minusSign)) {
         QStringList leftSide = m_tokens;
         leftSide.removeLast();
+        leftSide = leftSide.mid(openGroupExpressionStart(leftSide));
         bool baseOk = false;
         const double base = evaluateTokens(leftSide, &baseOk);
         if (baseOk)
