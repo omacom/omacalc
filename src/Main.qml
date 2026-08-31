@@ -77,9 +77,38 @@ ApplicationWindow {
         anchors.margins: win.scaledSize(20)
         focus: true
 
+        // With NumLock out of sync at the compositor level (hyprwm/Hyprland#8288),
+        // keypad digits arrive as navigation keys with KeypadModifier set and an
+        // empty text, so they must be mapped back by key code rather than text.
+        function keypadDigit(event) {
+            if (!(event.modifiers & Qt.KeypadModifier))
+                return undefined;
+            switch (event.key) {
+            case Qt.Key_Insert: return "0";
+            case Qt.Key_End: return "1";
+            case Qt.Key_Down: return "2";
+            case Qt.Key_PageDown: return "3";
+            case Qt.Key_Left: return "4";
+            case Qt.Key_Clear: return "5";
+            case Qt.Key_Right: return "6";
+            case Qt.Key_Home: return "7";
+            case Qt.Key_Up: return "8";
+            case Qt.Key_PageUp: return "9";
+            case Qt.Key_Delete: return ".";
+            }
+            return undefined;
+        }
+
         Keys.onPressed: function(event) {
             if (event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))
                 return;
+
+            var digit = keypadDigit(event);
+            if (digit !== undefined) {
+                backend.pressKey(digit);
+                event.accepted = true;
+                return;
+            }
 
             if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter
                     || event.text === "=") {
