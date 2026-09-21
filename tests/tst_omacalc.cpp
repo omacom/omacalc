@@ -1,6 +1,11 @@
 #include <QtTest>
 #include <QClipboard>
 #include <QGuiApplication>
+#include <QQmlApplicationEngine>
+#include <QQmlContext>
+#include <QQuickWindow>
+#include <QQuickItem>
+#include <QKeyEvent>
 
 #include "backend.h"
 
@@ -21,6 +26,44 @@ private slots:
         QSettings::setDefaultFormat(QSettings::IniFormat);
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
                            m_settingsDirectory.path());
+    }
+
+    void keypadWithMissingNumLockState() {
+        Backend calculator;
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("backend", &calculator);
+        engine.load(QUrl("qrc:/Main.qml"));
+        QVERIFY(!engine.rootObjects().isEmpty());
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        QVERIFY(window);
+        QCoreApplication::processEvents();
+        QVERIFY(window->activeFocusItem());
+        const auto send = [window](int key, Qt::KeyboardModifiers modifiers,
+                                   const QString &text = QString()) {
+            QKeyEvent event(QEvent::KeyPress, key, modifiers, text);
+            QCoreApplication::sendEvent(window->activeFocusItem(), &event);
+        };
+        // Deliver the empty-text navigation events seen when Num Lock is lost.
+        const int keys[] = {Qt::Key_Insert, Qt::Key_End, Qt::Key_Down,
+            Qt::Key_PageDown, Qt::Key_Left, Qt::Key_Clear, Qt::Key_Right,
+            Qt::Key_Home, Qt::Key_Up, Qt::Key_PageUp};
+        for (int digit = 0; digit < 10; ++digit) {
+            calculator.pressKey("clear");
+            send(keys[digit], Qt::KeypadModifier);
+            QCOMPARE(calculator.display(), QString::number(digit));
+        }
+        send(Qt::Key_Delete, Qt::KeypadModifier);
+        send(Qt::Key_End, Qt::KeypadModifier);
+        QCOMPARE(calculator.display(), QStringLiteral("9.1"));
+        // Normal navigation and modified shortcuts must not enter digits.
+        send(Qt::Key_Left, Qt::NoModifier);
+        send(Qt::Key_Home, Qt::KeypadModifier | Qt::ControlModifier);
+        QCOMPARE(calculator.display(), QStringLiteral("9.1"));
+        send(Qt::Key_Delete, Qt::NoModifier);
+        QCOMPARE(calculator.display(), QStringLiteral("0"));
+        send(Qt::Key_4, Qt::NoModifier, "4");
+        send(Qt::Key_2, Qt::KeypadModifier, "2");
+        QCOMPARE(calculator.display(), QStringLiteral("42"));
     }
 
     void startsAtZero() {

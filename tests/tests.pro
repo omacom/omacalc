@@ -1,4 +1,4 @@
-QT += core gui testlib dbus
+QT += core gui testlib dbus qml quick quickcontrols2
 CONFIG += testcase c++17
 TEMPLATE = app
 TARGET = tst_omacalc
@@ -9,3 +9,5 @@ SOURCES += \
     ../src/backend.cpp
 HEADERS += \
     ../src/backend.h
+
+RESOURCES += ../src/resources.qrc
