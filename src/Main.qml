@@ -77,11 +77,23 @@ ApplicationWindow {
         anchors.margins: win.scaledSize(20)
         focus: true
 
+        // The numpad without NumLock sends navigation keys. A calculator has no
+        // use for those, and a compositor can hand a freshly focused window a
+        // keymap that drops NumLock, so read the numpad as digits either way.
+        readonly property var numpadKeys: ({
+            [Qt.Key_Insert]: "0", [Qt.Key_End]: "1", [Qt.Key_Down]: "2",
+            [Qt.Key_PageDown]: "3", [Qt.Key_Left]: "4", [Qt.Key_Clear]: "5",
+            [Qt.Key_Right]: "6", [Qt.Key_Home]: "7", [Qt.Key_Up]: "8",
+            [Qt.Key_PageUp]: "9", [Qt.Key_Delete]: "."
+        })
+
         Keys.onPressed: function(event) {
             if (event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))
                 return;
 
-            if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter
+            if ((event.modifiers & Qt.KeypadModifier) && event.key in numpadKeys) {
+                backend.pressKey(numpadKeys[event.key]);
+            } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter
                     || event.text === "=") {
                 backend.pressKey("=");
             } else if (event.key === Qt.Key_Backspace) {
