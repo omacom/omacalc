@@ -38,8 +38,9 @@ public:
     Q_INVOKABLE void pressKey(const QString &key);
     Q_INVOKABLE void copyResult() const;
     Q_INVOKABLE void pasteNumber();
-    Q_INVOKABLE QVariantMap windowGeometry() const;
-    Q_INVOKABLE void saveWindowGeometry(int x, int y, int width, int height, bool maximized);
+    // Launch size for the current text scale. Not a live binding: the window
+    // reads it once, and a later scale change waits until the next launch.
+    Q_INVOKABLE QVariantMap defaultWindowSize() const;
 
 signals:
     void calculationChanged();
@@ -63,6 +64,7 @@ private:
     static QString prettyExpression(const QStringList &tokens);
     void loadOmarchyTheme();
     void watchOmarchyTheme();
+    void discardSavedWindowGeometry();
 
     QStringList m_tokens;
     QString m_entry;

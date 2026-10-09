@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QVariant>
 
 #include <functional>
 
@@ -14,6 +15,10 @@ public:
 
     bool darkMode() const { return m_darkMode; }
     qreal textScale() const { return m_textScale; }
+
+    // Portal text-scaling-factor, clamped to the range GNOME allows.
+    // *known is set only when value is a positive number.
+    static qreal normalizedTextScale(const QVariant &value, bool *known);
 
 signals:
     void darkModeChanged(bool darkMode);
@@ -31,6 +36,7 @@ private:
                               std::function<void(const QVariant &)> handler);
     void requestPortalDarkMode();
     void requestPortalTextScale();
+    void readInitialTextScale();
     bool qtDarkMode(bool *known) const;
     void setDarkMode(bool darkMode);
     void setTextScale(qreal textScale);

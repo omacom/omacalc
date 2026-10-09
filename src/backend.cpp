@@ -6,15 +6,12 @@
 #include <QFile>
 #include <QGuiApplication>
 #include <QLocale>
-#include <QRect>
 #include <QSettings>
 #include <QTextStream>
 #include <QVariantMap>
 #include <cmath>
 
 namespace {
-const auto windowGeometrySetting = QStringLiteral("window/geometry");
-
 const QString plusSign = QStringLiteral("+");
 const QString minusSign = QStringLiteral("−");
 const QString multiplySign = QStringLiteral("×");
@@ -38,6 +35,10 @@ QString sealNumber(const QString &entry) {
 }
 
 Backend::Backend(QObject *parent) : QObject(parent) {
+    // Older builds stored the compositor's size. On Hyprland 0.56 that size
+    // was the tiled or maximized rectangle, and the maximized flag was set for
+    // a normal window, so the next launch filled the screen. Drop both keys.
+    discardSavedWindowGeometry();
     loadOmarchyTheme();
     watchOmarchyTheme();
     connect(&m_themeWatcher, &QFileSystemWatcher::fileChanged, this, [this]() {
@@ -393,26 +394,29 @@ void Backend::pasteNumber() {
     emit calculationChanged();
 }
 
-QVariantMap Backend::windowGeometry() const {
-    const QSettings settings;
-    const QRect geometry = settings.value(windowGeometrySetting).toRect();
-    QVariantMap map;
-    // Positions can legitimately be negative on monitors left of or above the
-    // primary, so validity travels separately instead of being encoded as -1.
-    map.insert(QStringLiteral("valid"), geometry.isValid());
-    map.insert(QStringLiteral("x"), geometry.x());
-    map.insert(QStringLiteral("y"), geometry.y());
-    map.insert(QStringLiteral("width"), geometry.width());
-    map.insert(QStringLiteral("height"), geometry.height());
-    map.insert(QStringLiteral("maximized"),
-               settings.value(QStringLiteral("window/maximized"), false).toBool());
-    return map;
+QVariantMap Backend::defaultWindowSize() const {
+    qreal scale = m_textScale;
+    if (!std::isfinite(scale) || scale <= 0)
+        scale = 1.0;
+
+    // 400×568 is the v0.2.2 design size. The minimum matches Main.qml, so a
+    // text scale below 1 still opens at a usable calculator.
+    QVariantMap size;
+    size.insert(QStringLiteral("width"), qMax(300, qRound(400 * scale)));
+    size.insert(QStringLiteral("height"), qMax(430, qRound(568 * scale)));
+    return size;
 }
 
-void Backend::saveWindowGeometry(int x, int y, int width, int height, bool maximized) {
+void Backend::discardSavedWindowGeometry() {
     QSettings settings;
-    settings.setValue(windowGeometrySetting, QRect(x, y, width, height));
-    settings.setValue(QStringLiteral("window/maximized"), maximized);
+    const bool hadGeometry = settings.contains(QStringLiteral("window/geometry"));
+    const bool hadMaximized = settings.contains(QStringLiteral("window/maximized"));
+    if (!hadGeometry && !hadMaximized)
+        return;
+
+    settings.remove(QStringLiteral("window/geometry"));
+    settings.remove(QStringLiteral("window/maximized"));
+    settings.sync();
 }
 
 void Backend::setDarkMode(bool darkMode) {

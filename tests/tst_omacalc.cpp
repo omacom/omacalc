@@ -1,8 +1,13 @@
 #include <QtTest>
 #include <QClipboard>
+#include <QElapsedTimer>
 #include <QGuiApplication>
+#include <QRect>
+#include <QSettings>
+#include <QVariant>
 
 #include "backend.h"
+#include "systemtheme.h"
 
 namespace {
 void press(Backend &calculator, const QString &keys) {
@@ -209,6 +214,77 @@ private slots:
 
         Backend::evaluateTokens({"1", "÷", "0"}, &ok);
         QVERIFY(!ok);
+    }
+
+    void opensAtTheDesignSizeForTheTextScale() {
+        Backend calculator;
+        calculator.setTextScale(1);
+        QVariantMap size = calculator.defaultWindowSize();
+        QCOMPARE(size.value(QStringLiteral("width")).toInt(), 400);
+        QCOMPARE(size.value(QStringLiteral("height")).toInt(), 568);
+
+        calculator.setTextScale(1.5);
+        size = calculator.defaultWindowSize();
+        QCOMPARE(size.value(QStringLiteral("width")).toInt(), 600);
+        QCOMPARE(size.value(QStringLiteral("height")).toInt(), 852);
+
+        // Below the design size the window stays at Main.qml's minimum.
+        calculator.setTextScale(0.5);
+        size = calculator.defaultWindowSize();
+        QCOMPARE(size.value(QStringLiteral("width")).toInt(), 300);
+        QCOMPARE(size.value(QStringLiteral("height")).toInt(), 430);
+
+        calculator.setTextScale(qQNaN());
+        size = calculator.defaultWindowSize();
+        QCOMPARE(size.value(QStringLiteral("width")).toInt(), 400);
+        QCOMPARE(size.value(QStringLiteral("height")).toInt(), 568);
+    }
+
+    void dropsASavedWindowRectangle() {
+        QSettings written;
+        written.setValue(QStringLiteral("window/geometry"), QRect(0, 0, 1896, 1030));
+        written.setValue(QStringLiteral("window/maximized"), true);
+        written.setValue(QStringLiteral("unrelated"), QStringLiteral("kept"));
+        written.sync();
+
+        Backend calculator;
+        Q_UNUSED(calculator);
+
+        QSettings stored;
+        QVERIFY(!stored.contains(QStringLiteral("window/geometry")));
+        QVERIFY(!stored.contains(QStringLiteral("window/maximized")));
+        QCOMPARE(stored.value(QStringLiteral("unrelated")).toString(), QStringLiteral("kept"));
+    }
+
+    void normalizesThePortalTextScale() {
+        bool known = false;
+        QCOMPARE(SystemTheme::normalizedTextScale(QVariant(1.25), &known), 1.25);
+        QVERIFY(known);
+
+        known = false;
+        QCOMPARE(SystemTheme::normalizedTextScale(QVariant(4.0), &known), 3.0);
+        QVERIFY(known);
+
+        known = false;
+        QCOMPARE(SystemTheme::normalizedTextScale(QVariant(0.1), &known), 0.5);
+        QVERIFY(known);
+
+        known = false;
+        QCOMPARE(SystemTheme::normalizedTextScale(QVariant(0.0), &known), 1.0);
+        QVERIFY(!known);
+
+        known = false;
+        QCOMPARE(SystemTheme::normalizedTextScale(QVariant(QStringLiteral("nope")), &known), 1.0);
+        QVERIFY(!known);
+    }
+
+    void readsThePortalTextScaleWithoutStalling() {
+        QElapsedTimer timer;
+        timer.start();
+        SystemTheme theme;
+        QVERIFY(timer.elapsed() < 2000);
+        QVERIFY(theme.textScale() >= 0.5);
+        QVERIFY(theme.textScale() <= 3.0);
     }
 
     void formatsNumbers() {

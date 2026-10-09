@@ -6,6 +6,8 @@ TARGET = tst_omacalc
 INCLUDEPATH += ../src
 SOURCES += \
     tst_omacalc.cpp \
-    ../src/backend.cpp
+    ../src/backend.cpp \
+    ../src/systemtheme.cpp
 HEADERS += \
-    ../src/backend.h
+    ../src/backend.h \
+    ../src/systemtheme.h

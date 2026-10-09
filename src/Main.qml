@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
-import QtQuick.Window
 
 ApplicationWindow {
     id: win
@@ -10,7 +9,7 @@ ApplicationWindow {
     height: 568
     minimumWidth: 300
     minimumHeight: 430
-    visible: true
+    visible: false
     title: "Omacalc"
 
     readonly property bool darkMode: backend.darkMode
@@ -18,24 +17,9 @@ ApplicationWindow {
     readonly property color inkColor: backend.themeForeground
     // Every hardcoded size in the interface is expressed at the 400 × 568
     // design size; resizing the window scales the whole face with it. The
-    // desktop text scale is folded into the default window size below, and
-    // runtime changes resize the window proportionally so the face re-flows
-    // live along with the rest of the desktop.
+    // launch size below already includes the desktop text scale. A scale
+    // change while the window is open waits until the next launch.
     readonly property real uiScale: Math.min(width / 400, height / 568)
-    property real appliedTextScale: backend.textScale
-
-    Connections {
-        target: backend
-
-        function onTextScaleChanged() {
-            var factor = backend.textScale / win.appliedTextScale;
-            win.appliedTextScale = backend.textScale;
-            if (win.visibility === Window.Windowed) {
-                win.width = Math.round(win.width * factor);
-                win.height = Math.round(win.height * factor);
-            }
-        }
-    }
 
     function mixColors(base, tint, amount) {
         return Qt.rgba(
@@ -197,46 +181,13 @@ ApplicationWindow {
         }
     }
 
-    // Remember the last windowed geometry rather than whatever the window
-    // happens to measure at teardown: a maximized window reports screen-sized
-    // dimensions, and the close sequence hides the window before destruction,
-    // so neither the live geometry nor the final visibility can be trusted.
-    property rect normalGeometry: Qt.rect(x, y, width, height)
-    property bool wasMaximized: false
-
-    function trackNormalGeometry() {
-        if (visibility === Window.Windowed)
-            normalGeometry = Qt.rect(x, y, width, height);
-    }
-
-    onXChanged: trackNormalGeometry()
-    onYChanged: trackNormalGeometry()
-    onWidthChanged: trackNormalGeometry()
-    onHeightChanged: trackNormalGeometry()
-
-    onVisibilityChanged: {
-        if (visibility === Window.Maximized || visibility === Window.FullScreen)
-            wasMaximized = true;
-        else if (visibility === Window.Windowed)
-            wasMaximized = false;
-    }
-
     Component.onCompleted: {
-        var geometry = backend.windowGeometry();
-        if (geometry.valid) {
-            x = geometry.x;
-            y = geometry.y;
-            width = geometry.width;
-            height = geometry.height;
-            if (geometry.maximized) showMaximized();
-        } else {
-            // First run: open at the design size, grown by the desktop text scale.
-            width = Math.round(400 * backend.textScale);
-            height = Math.round(568 * backend.textScale);
-        }
+        // Chosen once. Hyprland reports a normal float as maximized, so a
+        // saved rectangle was the tiled size and the next launch filled the
+        // screen. Position stays with the compositor.
+        var size = backend.defaultWindowSize();
+        width = size.width;
+        height = size.height;
+        visible = true;
     }
-
-    Component.onDestruction: backend.saveWindowGeometry(
-        normalGeometry.x, normalGeometry.y,
-        normalGeometry.width, normalGeometry.height, wasMaximized)
 }

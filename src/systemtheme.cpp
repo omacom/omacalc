@@ -35,19 +35,6 @@ bool colorSchemeIsDark(const QVariant &value, bool *known) {
     return false;
 }
 
-// GNOME's text-scaling-factor is the desktop-wide "apparent text size" knob;
-// omarchy drives it from `omarchy display text size`, anchored so the default
-// 12px maps to 1.0. Ignore nonsense values and cap the range GNOME allows.
-qreal sanitizedTextScale(const QVariant &value, bool *known) {
-    bool ok = false;
-    const qreal scale = unwrapVariant(value).toDouble(&ok);
-    if (!ok || scale <= 0)
-        return 1.0;
-
-    *known = true;
-    return qBound(0.5, scale, 3.0);
-}
-
 bool gsettingsSchemeIsDark(const QVariant &value, bool *known) {
     const QString scheme = unwrapVariant(value).toString();
     if (scheme.contains(QStringLiteral("prefer-dark"))) {
@@ -61,11 +48,24 @@ bool gsettingsSchemeIsDark(const QVariant &value, bool *known) {
 
     return false;
 }
+} // namespace
+
+qreal SystemTheme::normalizedTextScale(const QVariant &value, bool *known) {
+    // GNOME's text-scaling-factor is the desktop-wide "apparent text size" knob;
+    // omarchy drives it from `omarchy display text size`, anchored so the default
+    // 12px maps to 1.0. Ignore nonsense values and cap the range GNOME allows.
+    bool ok = false;
+    const qreal scale = unwrapVariant(value).toDouble(&ok);
+    if (!ok || scale <= 0)
+        return 1.0;
+
+    *known = true;
+    return qBound(0.5, scale, 3.0);
 }
 
 SystemTheme::SystemTheme(QObject *parent) : QObject(parent) {
-    // Start from what Qt already knows synchronously; the portal answers
-    // arrive asynchronously and refine these without ever blocking startup.
+    // Dark mode can arrive after startup. The window size cannot: it is chosen
+    // once from the text scale below, before the interface is shown.
     bool known = false;
     const bool qtDark = qtDarkMode(&known);
     if (known)
@@ -85,6 +85,9 @@ SystemTheme::SystemTheme(QObject *parent) : QObject(parent) {
         SLOT(handlePortalSettingChanged(QString,QString,QDBusVariant)));
 
     requestPortalDarkMode();
+    readInitialTextScale();
+    // If the blocking read timed out, this can still update the font. It does
+    // not resize the window: that size was taken before the event loop.
     requestPortalTextScale();
 }
 
@@ -140,10 +143,35 @@ void SystemTheme::requestPortalTextScale() {
                          QStringLiteral("text-scaling-factor"),
                          [this](const QVariant &value) {
         bool known = false;
-        const qreal scale = sanitizedTextScale(value, &known);
+        const qreal scale = normalizedTextScale(value, &known);
         if (known)
             setTextScale(scale);
     });
+}
+
+// The async read above can miss the first frame. Block briefly so the launch
+// size matches the desktop text scale. A missing or slow portal leaves 1.0.
+void SystemTheme::readInitialTextScale() {
+    const QDBusConnection bus = QDBusConnection::sessionBus();
+    if (!bus.isConnected())
+        return;
+
+    QDBusMessage request = QDBusMessage::createMethodCall(
+        QStringLiteral("org.freedesktop.portal.Desktop"),
+        QStringLiteral("/org/freedesktop/portal/desktop"),
+        QStringLiteral("org.freedesktop.portal.Settings"),
+        QStringLiteral("Read"));
+    request << QStringLiteral("org.gnome.desktop.interface")
+            << QStringLiteral("text-scaling-factor");
+
+    const QDBusMessage reply = bus.call(request, QDBus::Block, 200);
+    if (reply.type() != QDBusMessage::ReplyMessage || reply.arguments().isEmpty())
+        return;
+
+    bool known = false;
+    const qreal scale = normalizedTextScale(reply.arguments().constFirst(), &known);
+    if (known)
+        m_textScale = scale;
 }
 
 void SystemTheme::handlePortalSettingChanged(const QString &nameSpace, const QString &key,
@@ -153,7 +181,7 @@ void SystemTheme::handlePortalSettingChanged(const QString &nameSpace, const QSt
             return;
 
         bool known = false;
-        const qreal scale = sanitizedTextScale(value.variant(), &known);
+        const qreal scale = normalizedTextScale(value.variant(), &known);
         if (known)
             setTextScale(scale);
         return;
