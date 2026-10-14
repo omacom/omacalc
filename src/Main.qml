@@ -125,8 +125,6 @@ ApplicationWindow {
             }
 
             Text {
-                anchors.top: expressionText.bottom
-                anchors.topMargin: win.scaledSize(8)
                 anchors.bottom: parent.bottom
                 anchors.left: parent.left
                 anchors.right: parent.right
@@ -135,7 +133,7 @@ ApplicationWindow {
                 text: backend.display
                 color: win.inkColor
                 fontSizeMode: Text.HorizontalFit
-                minimumPixelSize: win.scaledSize(32)
+                minimumPixelSize: win.scaledSize(22)
                 font.family: "iA Writer Mono S"
                 font.pixelSize: win.scaledSize(76)
             }
