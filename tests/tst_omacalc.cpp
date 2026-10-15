@@ -259,6 +259,18 @@ private slots:
 
         Backend::evaluateTokens({"1", "÷", "0"}, &ok);
         QVERIFY(!ok);
+
+        QCOMPARE(Backend::evaluateTokens({"(", "2", "+", "3", ")", "×", "4"}, &ok), 20.0);
+        QVERIFY(ok);
+        QCOMPARE(Backend::evaluateTokens({"2", "^", "(", "1", "+", "2", ")"}, &ok), 8.0);
+        QVERIFY(ok);
+    }
+
+    void groupsWithParentheses() {
+        Backend calculator;
+        press(calculator, "( 2 + 3 ) * 4 =");
+        QCOMPARE(calculator.display(), QStringLiteral("20"));
+        QCOMPARE(calculator.expression(), QStringLiteral("( 2 + 3 ) × 4"));
     }
 
     void opensAtTheDesignSizeForTheTextScale() {

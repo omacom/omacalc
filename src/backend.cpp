@@ -97,9 +97,12 @@ QString Backend::display() const {
 QString Backend::prettyExpression(const QStringList &tokens) {
     QStringList pretty;
     pretty.reserve(tokens.size());
-    for (const QString &token : tokens)
-        pretty << (isOperator(token) ? token
-                                     : formatNumber(QLocale::c().toDouble(token)));
+    for (const QString &token : tokens) {
+        if (isOperator(token) || token == QStringLiteral("(") || token == QStringLiteral(")"))
+            pretty << token;
+        else
+            pretty << formatNumber(QLocale::c().toDouble(token));
+    }
     return pretty.join(QLatin1Char(' '));
 }
 
@@ -109,7 +112,8 @@ QString Backend::currentValue() const {
     if (!m_entry.isEmpty())
         return sealNumber(m_entry);
     for (int i = m_tokens.size() - 1; i >= 0; --i) {
-        if (!isOperator(m_tokens.at(i)))
+        if (!isOperator(m_tokens.at(i)) && m_tokens.at(i) != QStringLiteral("(")
+                && m_tokens.at(i) != QStringLiteral(")"))
             return m_tokens.at(i);
     }
     return QStringLiteral("0");
@@ -130,6 +134,10 @@ void Backend::pressKey(const QString &key) {
         pressOperator(divideSign);
     } else if (key == QStringLiteral("^")) {
         pressOperator(powerSign);
+    } else if (key == QStringLiteral("(")) {
+        pressParen(true);
+    } else if (key == QStringLiteral(")")) {
+        pressParen(false);
     } else if (key == QStringLiteral("=")) {
         pressEquals();
     } else if (key == QStringLiteral("%")) {
@@ -214,6 +222,47 @@ void Backend::pressOperator(const QString &pretty) {
     } else {
         m_tokens << pretty;
     }
+}
+
+void Backend::pressParen(bool open) {
+    if (m_errored)
+        return;
+    if (m_justEvaluated) {
+        if (!open)
+            return;
+        pressClear();
+    }
+
+    if (open) {
+        // No implicit multiplication: a parenthesis starts a group, or follows
+        // an operator.
+        if (!m_entry.isEmpty())
+            return;
+        if (!m_tokens.isEmpty() && !isOperator(m_tokens.last())
+                && m_tokens.last() != QStringLiteral("("))
+            return;
+        m_tokens << QStringLiteral("(");
+        return;
+    }
+
+    if (!m_entry.isEmpty()) {
+        m_tokens << sealNumber(m_entry);
+        m_entry.clear();
+    }
+    if (m_tokens.isEmpty() || isOperator(m_tokens.last())
+            || m_tokens.last() == QStringLiteral("("))
+        return;
+
+    int depth = 0;
+    for (const QString &token : m_tokens) {
+        if (token == QStringLiteral("("))
+            ++depth;
+        else if (token == QStringLiteral(")"))
+            --depth;
+    }
+    if (depth <= 0)
+        return;
+    m_tokens << QStringLiteral(")");
 }
 
 void Backend::pressEquals() {
@@ -334,6 +383,29 @@ double Backend::evaluateTokens(const QStringList &tokens, bool *ok) {
         ok = &localOk;
 
     *ok = false;
+
+    // Innermost groups first, so (2 + 3) × 4 is 20 and 2 ^ (1 + 2) is 8.
+    if (tokens.contains(QStringLiteral("(")) || tokens.contains(QStringLiteral(")"))) {
+        const int open = tokens.lastIndexOf(QStringLiteral("("));
+        int close = -1;
+        for (int i = open + 1; i < tokens.size(); ++i) {
+            if (tokens.at(i) == QStringLiteral(")")) {
+                close = i;
+                break;
+            }
+        }
+        if (open < 0 || close < 0)
+            return 0;
+        bool innerOk = false;
+        const double inner = evaluateTokens(tokens.mid(open + 1, close - open - 1), &innerOk);
+        if (!innerOk)
+            return 0;
+        QStringList reduced = tokens.mid(0, open);
+        reduced << QString::number(inner, 'g', 17);
+        reduced += tokens.mid(close + 1);
+        return evaluateTokens(reduced, ok);
+    }
+
     if (tokens.size() % 2 == 0)
         return 0;
 
