@@ -177,7 +177,7 @@ private slots:
 
         // Integers within the 15-digit entry limit survive exactly.
         press(calculator, "clear 9 9 9 9 9 9 9 9 9 9 9 9 9 9 =");
-        QCOMPARE(calculator.display(), QStringLiteral("99999999999999"));
+        QCOMPARE(calculator.display(), QStringLiteral("99,999,999,999,999"));
     }
 
     void capsEntryAtFifteenDigits() {
@@ -330,6 +330,15 @@ private slots:
         QVERIFY(timer.elapsed() < 2000);
         QVERIFY(theme.textScale() >= 0.5);
         QVERIFY(theme.textScale() <= 3.0);
+    }
+
+    void groupsThousandsOnTheDisplay() {
+        Backend calculator;
+        press(calculator, "5 0 0 * 4 =");
+        QCOMPARE(calculator.display(), QStringLiteral("2,000"));
+        QCOMPARE(calculator.expression(), QStringLiteral("500 × 4"));
+        calculator.copyResult();
+        QCOMPARE(QGuiApplication::clipboard()->text(), QStringLiteral("2000"));
     }
 
     void formatsNumbers() {

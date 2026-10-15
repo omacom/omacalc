@@ -11,6 +11,8 @@ Install via the Omarchy Package Repository via the `omacalc` package.
 
 ## Usage
 
+Results of a thousand or more show thousands separators. What you copy is still the plain number.
+
 The keypad covers the basics: the four arithmetic operators with the usual
 precedence (`×` and `÷` before `+` and `−`), decimals, percent, sign toggle,
 and backspace. The expression builds up above the display and stays visible

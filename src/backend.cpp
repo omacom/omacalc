@@ -82,14 +82,37 @@ QString Backend::expression() const {
     return prettyExpression(m_tokens);
 }
 
+QString grouped(const QString &plain);
+
 QString Backend::display() const {
     if (m_errored)
         return QStringLiteral("Error");
     if (!m_entry.isEmpty())
         return m_entry;
     if (m_justEvaluated)
-        return m_result;
-    return formatNumber(QLocale::c().toDouble(currentValue()));
+        return grouped(m_result);
+    return grouped(formatNumber(QLocale::c().toDouble(currentValue())));
+}
+
+// Thousands separators on the result only. The expression and a copied value
+// stay plain, so they paste back into the keypad.
+QString grouped(const QString &plain) {
+    if (plain.contains(QLatin1Char('e')) || plain.contains(QLatin1Char('E')))
+        return plain;
+    const bool negative = plain.startsWith(QLatin1Char('-'));
+    const QString body = negative ? plain.mid(1) : plain;
+    const int dot = body.indexOf(QLatin1Char('.'));
+    const QString whole = dot < 0 ? body : body.left(dot);
+    const QString fraction = dot < 0 ? QString() : body.mid(dot);
+    if (whole.size() <= 3)
+        return plain;
+    QString out;
+    for (int i = 0; i < whole.size(); ++i) {
+        if (i > 0 && (whole.size() - i) % 3 == 0)
+            out += QLatin1Char(',');
+        out += whole.at(i);
+    }
+    return (negative ? QStringLiteral("-") : QString()) + out + fraction;
 }
 
 // Operand tokens carry full round-trip precision when they come from a chained
@@ -418,8 +441,11 @@ QString Backend::formatNumber(double value) {
 }
 
 void Backend::copyResult() const {
-    if (QClipboard *clipboard = QGuiApplication::clipboard())
-        clipboard->setText(display());
+    if (QClipboard *clipboard = QGuiApplication::clipboard()) {
+        const QString plain = m_justEvaluated ? m_result
+            : (!m_entry.isEmpty() ? m_entry : formatNumber(QLocale::c().toDouble(currentValue())));
+        clipboard->setText(plain);
+    }
 }
 
 // Paste replaces the current entry when the clipboard holds a number,
