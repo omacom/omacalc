@@ -134,6 +134,8 @@ void Backend::pressKey(const QString &key) {
         pressEquals();
     } else if (key == QStringLiteral("%")) {
         pressPercent();
+    } else if (key == QStringLiteral("sqrt")) {
+        pressSqrt();
     } else if (key == QStringLiteral("sign")) {
         pressToggleSign();
     } else if (key == QStringLiteral("backspace")) {
@@ -214,6 +216,32 @@ void Backend::pressOperator(const QString &pretty) {
     } else {
         m_tokens << pretty;
     }
+}
+
+void Backend::pressSqrt() {
+    if (m_errored)
+        return;
+    const QString shown = m_justEvaluated ? m_result : currentValue();
+    bool ok = false;
+    const double value = QLocale::c().toDouble(shown, &ok);
+    if (!ok || value < 0) {
+        m_errored = true;
+        m_tokens.clear();
+        m_entry.clear();
+        m_justEvaluated = false;
+        return;
+    }
+    const QString result = formatNumber(std::sqrt(value));
+    if (m_justEvaluated) {
+        m_tokens.clear();
+        m_entry = result;
+        m_justEvaluated = false;
+        return;
+    }
+    if (!m_entry.isEmpty() || m_tokens.isEmpty() || isOperator(m_tokens.last()))
+        m_entry = result;
+    else
+        m_tokens.last() = result;
 }
 
 void Backend::pressEquals() {
