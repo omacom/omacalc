@@ -140,9 +140,14 @@ void Backend::pressKey(const QString &key) {
         pressBackspace();
     } else if (key == QStringLiteral("clear")) {
         pressClear();
+    } else if (key == QStringLiteral("recall")) {
+        recallPrevious();
     } else {
         return;
     }
+
+    if (key != QStringLiteral("recall"))
+        m_recallIndex = -1;
 
     emit calculationChanged();
 }
@@ -237,6 +242,9 @@ void Backend::pressEquals() {
         m_resultValue = value;
         m_result = formatNumber(value);
         m_justEvaluated = true;
+        m_history.append(finalTokens);
+        if (m_history.size() > 16)
+            m_history.removeFirst();
     }
     m_tokens.clear();
     m_entry.clear();
@@ -415,6 +423,21 @@ QString Backend::formatNumber(double value) {
     // every integer the 15-digit entry limit can produce exactly; larger
     // magnitudes fall back to scientific notation.
     return QString::number(value, 'g', 15);
+}
+
+void Backend::recallPrevious() {
+    if (m_history.isEmpty())
+        return;
+    if (m_recallIndex < 0)
+        m_recallIndex = m_history.size();
+    if (m_recallIndex == 0)
+        return;
+    --m_recallIndex;
+    m_tokens = m_history.at(m_recallIndex);
+    m_entry.clear();
+    m_errored = false;
+    clearEvaluation();
+    emit calculationChanged();
 }
 
 void Backend::copyResult() const {

@@ -27,6 +27,7 @@ Everything works from the keyboard too:
 - `0-9`, `.`, `+`, `-`, `*` or `x`, `/`, `^`, and `%` enter digits and operators.
   The numpad enters digits whether or not NumLock is on.
 - `Enter` or `=` calculates.
+- `Up` brings back an earlier expression from this session, newest first.
 - `Backspace` deletes the last digit.
 - `C` or `Escape` clears.
 - `S` toggles the sign.

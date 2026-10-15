@@ -38,6 +38,8 @@ public:
     Q_INVOKABLE void pressKey(const QString &key);
     Q_INVOKABLE void copyResult() const;
     Q_INVOKABLE void pasteNumber();
+    // Walk back through expressions that were equals'd this session.
+    Q_INVOKABLE void recallPrevious();
     // Launch size for the current text scale. Not a live binding: the window
     // reads it once, and a later scale change waits until the next launch.
     Q_INVOKABLE QVariantMap defaultWindowSize() const;
@@ -67,6 +69,8 @@ private:
     void discardSavedWindowGeometry();
 
     QStringList m_tokens;
+    QList<QStringList> m_history;
+    int m_recallIndex = -1;
     QString m_entry;
     QString m_result;
     double m_resultValue = 0;
