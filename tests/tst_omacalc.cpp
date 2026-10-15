@@ -243,6 +243,25 @@ private slots:
         QCOMPARE(calculator.display(), QStringLiteral("1.5"));
     }
 
+    void remembersARunningTotal() {
+        Backend calculator;
+        press(calculator, "2 0 0 + 5 0 =");
+        calculator.memoryAdd();
+        press(calculator, "clear 1 0");
+        calculator.memoryAdd();
+        calculator.memoryRecall();
+        QCOMPARE(calculator.display(), QStringLiteral("260"));
+        press(calculator, "+ 1 =");
+        QCOMPARE(calculator.display(), QStringLiteral("261"));
+
+        Backend again;
+        again.memoryRecall();
+        QCOMPARE(again.display(), QStringLiteral("260"));
+        again.memoryClear();
+        again.memoryRecall();
+        QCOMPARE(again.display(), QStringLiteral("0"));
+    }
+
     void evaluatesTokens() {
         bool ok = false;
         QCOMPARE(Backend::evaluateTokens({"2", "+", "3", "×", "4"}, &ok), 14.0);

@@ -38,6 +38,10 @@ public:
     Q_INVOKABLE void pressKey(const QString &key);
     Q_INVOKABLE void copyResult() const;
     Q_INVOKABLE void pasteNumber();
+    // Memory survives launches. m+ adds the current value, mr recalls it, mc clears it.
+    Q_INVOKABLE void memoryAdd();
+    Q_INVOKABLE void memoryRecall();
+    Q_INVOKABLE void memoryClear();
     // Launch size for the current text scale. Not a live binding: the window
     // reads it once, and a later scale change waits until the next launch.
     Q_INVOKABLE QVariantMap defaultWindowSize() const;

@@ -32,6 +32,7 @@ Everything works from the keyboard too:
 - `S` toggles the sign.
 - `Ctrl+C` or `Super+C` copies the result.
 - `Ctrl+V` or `Super+V` pastes a number.
+- `Ctrl+M` adds the current value to memory, `Ctrl+R` recalls it, and `Ctrl+Shift+M` clears it. Memory is kept for the next launch.
 
 Colors follow the current Omarchy theme (`~/.local/state/omarchy/current/theme/colors.toml`)
 and re-tint live when the theme changes. Text follows the desktop text size —
