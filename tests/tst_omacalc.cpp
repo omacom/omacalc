@@ -241,6 +241,18 @@ private slots:
         clipboard->setText(QStringLiteral("not a number"));
         calculator.pasteNumber();
         QCOMPARE(calculator.display(), QStringLiteral("1.5"));
+
+        clipboard->setText(QStringLiteral("42 × 3 + 7"));
+        calculator.pasteNumber();
+        QCOMPARE(calculator.display(), QStringLiteral("7"));
+        QCOMPARE(calculator.expression(), QStringLiteral("42 × 3 +"));
+        press(calculator, "=");
+        QCOMPARE(calculator.display(), QStringLiteral("133"));
+
+        clipboard->setText(QStringLiteral("2 * 3 ^ 2"));
+        calculator.pasteNumber();
+        press(calculator, "=");
+        QCOMPARE(calculator.display(), QStringLiteral("18"));
     }
 
     void evaluatesTokens() {

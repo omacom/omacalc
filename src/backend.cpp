@@ -422,30 +422,96 @@ void Backend::copyResult() const {
         clipboard->setText(display());
 }
 
+QString operatorFromChar(const QChar character) {
+    if (character == QLatin1Char('+'))
+        return plusSign;
+    if (character == QLatin1Char('-') || character == minusSign.at(0)
+            || character == QChar(0x2212))
+        return minusSign;
+    if (character == QLatin1Char('*') || character == QLatin1Char('x')
+            || character == QLatin1Char('X') || character == multiplySign.at(0))
+        return multiplySign;
+    if (character == QLatin1Char('/') || character == divideSign.at(0))
+        return divideSign;
+    if (character == QLatin1Char('^'))
+        return powerSign;
+    return QString();
+}
+
+// A pasted expression is the same token stream the keypad builds: numbers
+// alternating with operators, optionally ending on an operator. The last
+// number stays in the entry so typing can continue.
+bool parsePastedExpression(const QString &text, QStringList *tokens, QString *entry) {
+    tokens->clear();
+    entry->clear();
+    QString number;
+    auto seal = [&]() {
+        if (number.isEmpty())
+            return false;
+        bool ok = false;
+        const double value = QLocale::c().toDouble(number, &ok);
+        if (!ok || !std::isfinite(value))
+            return false;
+        if (!tokens->isEmpty() && !isOperator(tokens->last()))
+            return false;
+        tokens->append(Backend::formatNumber(value));
+        number.clear();
+        return true;
+    };
+
+    for (int i = 0; i < text.size(); ++i) {
+        const QChar character = text.at(i);
+        if (character.isSpace())
+            continue;
+        const QString op = operatorFromChar(character);
+        if (!op.isEmpty() && !(number.isEmpty() && (op == minusSign))) {
+            if (!number.isEmpty() && !seal())
+                return false;
+            if (tokens->isEmpty() || isOperator(tokens->last()))
+                return false;
+            tokens->append(op);
+            continue;
+        }
+        if (character.isDigit() || character == QLatin1Char('.')
+                || character == QLatin1Char(',')) {
+            number += (character == QLatin1Char(',')) ? QLatin1Char('.') : character;
+            continue;
+        }
+        if (op == minusSign && number.isEmpty()) {
+            number = QStringLiteral("-");
+            continue;
+        }
+        return false;
+    }
+    if (!number.isEmpty() && !seal())
+        return false;
+    if (tokens->isEmpty())
+        return false;
+    if (!isOperator(tokens->last())) {
+        *entry = tokens->takeLast();
+    }
+    return true;
+}
+
 // Paste replaces the current entry when the clipboard holds a number,
 // tolerating surrounding whitespace, a decimal comma, and the typographic
-// minus this calculator itself puts in expressions.
+// minus this calculator itself puts in expressions. A full expression
+// (42 × 3 + 7, or the ascii form) loads as tokens instead.
 void Backend::pasteNumber() {
     const QClipboard *clipboard = QGuiApplication::clipboard();
     if (!clipboard)
         return;
 
-    QString text = clipboard->text().trimmed();
-    text.replace(minusSign, QStringLiteral("-"));
-    text.remove(QLatin1Char(' '));
-
-    bool ok = false;
-    double value = QLocale::c().toDouble(text, &ok);
-    if (!ok) {
-        text.replace(QLatin1Char(','), QLatin1Char('.'));
-        value = QLocale::c().toDouble(text, &ok);
-    }
-    if (!ok || !std::isfinite(value))
+    const QString text = clipboard->text().trimmed();
+    QStringList tokens;
+    QString entry;
+    if (!parsePastedExpression(text, &tokens, &entry))
         return;
 
     if (m_errored || m_justEvaluated)
         pressClear();
-    m_entry = formatNumber(value);
+    m_tokens = tokens;
+    m_entry = entry;
     emit calculationChanged();
 }
 
