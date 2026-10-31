@@ -34,6 +34,7 @@ public:
 
     static double evaluateTokens(const QStringList &tokens, bool *ok);
     static QString formatNumber(double value);
+    static QString groupThousands(const QString &number);
 
     Q_INVOKABLE void pressKey(const QString &key);
     Q_INVOKABLE void copyResult() const;
@@ -59,6 +60,7 @@ private:
     void pressClear();
 
     QString currentValue() const;
+    QString plainDisplay() const;
     void beginEditingAfterResult();
     void clearEvaluation();
     static QString prettyExpression(const QStringList &tokens);

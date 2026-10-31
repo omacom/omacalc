@@ -177,13 +177,13 @@ private slots:
 
         // Integers within the 15-digit entry limit survive exactly.
         press(calculator, "clear 9 9 9 9 9 9 9 9 9 9 9 9 9 9 =");
-        QCOMPARE(calculator.display(), QStringLiteral("99999999999999"));
+        QCOMPARE(calculator.display(), QStringLiteral("99,999,999,999,999"));
     }
 
     void capsEntryAtFifteenDigits() {
         Backend calculator;
         press(calculator, "1 2 3 4 5 6 7 8 9 1 2 3 4 5 6 7 8");
-        QCOMPARE(calculator.display(), QStringLiteral("123456789123456"));
+        QCOMPARE(calculator.display(), QStringLiteral("123,456,789,123,456"));
 
         // The decimal point does not count against the digit cap.
         press(calculator, "clear . 1 2 3 4 5 6 7 8 9 1 2 3 4 5 6 7");
@@ -337,6 +337,16 @@ private slots:
         QCOMPARE(Backend::formatNumber(0.1 + 0.2), QStringLiteral("0.3"));
         QCOMPARE(Backend::formatNumber(-0.0), QStringLiteral("0"));
         QCOMPARE(Backend::formatNumber(1e15), QStringLiteral("1e+15"));
+
+        QCOMPARE(Backend::groupThousands(QStringLiteral("0")), QStringLiteral("0"));
+        QCOMPARE(Backend::groupThousands(QStringLiteral("999")), QStringLiteral("999"));
+        QCOMPARE(Backend::groupThousands(QStringLiteral("1000")), QStringLiteral("1,000"));
+        QCOMPARE(Backend::groupThousands(QStringLiteral("-123456789")), QStringLiteral("-123,456,789"));
+        QCOMPARE(Backend::groupThousands(QStringLiteral("123456.789")), QStringLiteral("123,456.789"));
+        QCOMPARE(Backend::groupThousands(QStringLiteral("1234.")), QStringLiteral("1,234."));
+        QCOMPARE(Backend::groupThousands(QStringLiteral("-0")), QStringLiteral("-0"));
+        QCOMPARE(Backend::groupThousands(QStringLiteral("1e+15")), QStringLiteral("1e+15"));
+        QCOMPARE(Backend::groupThousands(QStringLiteral("Error")), QStringLiteral("Error"));
     }
 
     void loadsCurrentOmarchyTheme() {

@@ -82,7 +82,13 @@ QString Backend::expression() const {
     return prettyExpression(m_tokens);
 }
 
+// Commas are presentation only: entries, results, and the clipboard stay
+// plain, since paste reads a comma as a decimal separator.
 QString Backend::display() const {
+    return groupThousands(plainDisplay());
+}
+
+QString Backend::plainDisplay() const {
     if (m_errored)
         return QStringLiteral("Error");
     if (!m_entry.isEmpty())
@@ -99,7 +105,7 @@ QString Backend::prettyExpression(const QStringList &tokens) {
     pretty.reserve(tokens.size());
     for (const QString &token : tokens)
         pretty << (isOperator(token) ? token
-                                     : formatNumber(QLocale::c().toDouble(token)));
+                                     : groupThousands(formatNumber(QLocale::c().toDouble(token))));
     return pretty.join(QLatin1Char(' '));
 }
 
@@ -417,9 +423,30 @@ QString Backend::formatNumber(double value) {
     return QString::number(value, 'g', 15);
 }
 
+// Insert a comma every three digits of the integer part: 123456789.5 becomes
+// 123,456,789.5. Scientific notation and non-numbers like "Error" pass through.
+QString Backend::groupThousands(const QString &number) {
+    if (number.contains(QLatin1Char('e')))
+        return number;
+
+    const int start = number.startsWith(QLatin1Char('-')) ? 1 : 0;
+    int end = number.indexOf(QLatin1Char('.'));
+    if (end < 0)
+        end = number.size();
+    for (int i = start; i < end; ++i) {
+        if (!number.at(i).isDigit())
+            return number;
+    }
+
+    QString grouped = number;
+    for (int i = end - 3; i > start; i -= 3)
+        grouped.insert(i, QLatin1Char(','));
+    return grouped;
+}
+
 void Backend::copyResult() const {
     if (QClipboard *clipboard = QGuiApplication::clipboard())
-        clipboard->setText(display());
+        clipboard->setText(plainDisplay());
 }
 
 // Paste replaces the current entry when the clipboard holds a number,
