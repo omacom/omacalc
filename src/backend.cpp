@@ -300,6 +300,14 @@ void Backend::pressBackspace() {
     if (m_justEvaluated)
         beginEditingAfterResult();
 
+    // Undo an operator before deleting digits: 42 + Backspace restores 42
+    // as the editable entry. Earlier terms stay in the expression.
+    if (m_entry.isEmpty() && !m_tokens.isEmpty() && isOperator(m_tokens.last())) {
+        m_tokens.removeLast();
+        m_entry = formatNumber(QLocale::c().toDouble(m_tokens.takeLast()));
+        return;
+    }
+
     m_entry.chop(1);
     if (m_entry == QStringLiteral("-"))
         m_entry.clear();
