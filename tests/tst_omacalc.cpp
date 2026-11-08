@@ -222,6 +222,19 @@ private slots:
         QCOMPARE(calculator.display(), QStringLiteral("0.333333333333333"));
     }
 
+    void backspaceRestoresTypedDecimal() {
+        Backend calculator;
+        press(calculator, "1 . 2 0 + backspace");
+        QCOMPARE(calculator.display(), QStringLiteral("1.20"));
+        press(calculator, "backspace 3 =");
+        QCOMPARE(calculator.display(), QStringLiteral("1.23"));
+
+        press(calculator, "clear 1 ÷ 3 = + 2 . 0 × backspace");
+        QCOMPARE(calculator.display(), QStringLiteral("2.0"));
+        press(calculator, "backspace backspace backspace backspace");
+        QCOMPARE(calculator.display(), QStringLiteral("0.333333333333333"));
+    }
+
     void chainsFromResult() {
         Backend calculator;
         press(calculator, "6 × 7 = × 2 =");
