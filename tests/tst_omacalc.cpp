@@ -199,6 +199,32 @@ private slots:
         QCOMPARE(calculator.display(), QStringLiteral("0"));
     }
 
+    void treatsExponentFormAsAWholeValue() {
+        Backend calculator;
+
+        // A digit after a tiny percent starts a new number rather than
+        // extending the exponent of 1e-05 into 1e-055.
+        press(calculator, ". 0 0 1 % 5");
+        QCOMPARE(calculator.display(), QStringLiteral("5"));
+
+        press(calculator, "clear . 0 0 1 % .");
+        QCOMPARE(calculator.display(), QStringLiteral("0."));
+
+        // Backspace on 1e+15 clears it rather than leaving 1e+1, which is 10.
+        press(calculator, "clear 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 × 1 0 = backspace");
+        QCOMPARE(calculator.display(), QStringLiteral("0"));
+
+        press(calculator, "clear . 0 0 1 % sign × 2 =");
+        QCOMPARE(calculator.display(), QStringLiteral("-2e-05"));
+
+        // A fresh number replaces only the operand, not the pending sum, and
+        // a decimal point starts one too rather than landing after 1e-05.
+        press(calculator, "clear 2 + . 0 0 1 % 5 =");
+        QCOMPARE(calculator.display(), QStringLiteral("7"));
+        press(calculator, "clear 2 + . 0 0 1 % . 5 =");
+        QCOMPARE(calculator.display(), QStringLiteral("2.5"));
+    }
+
     void chainsFromResult() {
         Backend calculator;
         press(calculator, "6 × 7 = × 2 =");

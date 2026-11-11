@@ -57,6 +57,12 @@ QString sealNumber(const QString &entry) {
         return QStringLiteral("0");
     return sealed;
 }
+
+// A result, percent, or paste too large or small for plain digits arrives as
+// 1e-07. It is a whole value: typing must not edit its exponent.
+bool inExponentForm(const QString &entry) {
+    return entry.contains(QLatin1Char('e'));
+}
 }
 
 Backend::Backend(QObject *parent) : QObject(parent) {
@@ -155,6 +161,8 @@ void Backend::pressDigit(const QString &digit) {
         // appending to the result.
         pressClear();
     }
+    if (inExponentForm(m_entry))
+        m_entry.clear();
 
     if (m_entry == QStringLiteral("0")) {
         m_entry = digit;
@@ -185,6 +193,8 @@ void Backend::pressDecimal() {
         pressClear();
     if (m_justEvaluated)
         pressClear();
+    if (inExponentForm(m_entry))
+        m_entry.clear();
 
     if (m_entry.isEmpty())
         m_entry = QStringLiteral("0.");
@@ -299,6 +309,10 @@ void Backend::pressBackspace() {
     }
     if (m_justEvaluated)
         beginEditingAfterResult();
+    if (inExponentForm(m_entry)) {
+        m_entry.clear();
+        return;
+    }
 
     m_entry.chop(1);
     if (m_entry == QStringLiteral("-"))
