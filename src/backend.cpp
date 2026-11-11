@@ -84,7 +84,7 @@ QString Backend::expression() const {
 
 QString Backend::display() const {
     if (m_errored)
-        return QStringLiteral("Error");
+        return tr("Error");
     if (!m_entry.isEmpty())
         return m_entry;
     if (m_justEvaluated)
