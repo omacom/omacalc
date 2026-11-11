@@ -277,11 +277,17 @@ void Backend::pressPercent() {
         leftSide.removeLast();
         bool baseOk = false;
         const double base = evaluateTokens(leftSide, &baseOk);
-        // Divide first: 1e308 + 100 % must not overflow on the way to 1e308.
-        if (baseOk)
-            percent *= base;
+        if (baseOk) {
+            percent = base * value / 100.0;
+            // 1e308 + 100 % overflows multiplying first; dividing first
+            // would round a tiny percentage, so only fall back to it.
+            if (!std::isfinite(percent))
+                percent = base * (value / 100.0);
+        }
     }
     if (!std::isfinite(percent)) {
+        m_evaluatedExpression = prettyExpression(m_tokens + QStringList(currentValue()))
+            + QStringLiteral(" %");
         m_errored = true;
         m_tokens.clear();
         m_entry.clear();
