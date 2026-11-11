@@ -223,6 +223,11 @@ private slots:
         QCOMPARE(calculator.display(), QStringLiteral("7"));
         press(calculator, "clear 2 + . 0 0 1 % . 5 =");
         QCOMPARE(calculator.display(), QStringLiteral("2.5"));
+
+        // Backspace leaves a zero operand, not the 2 before it.
+        press(calculator, "clear 2 + . 0 0 1 % backspace");
+        QCOMPARE(calculator.display(), QStringLiteral("0"));
+        QCOMPARE(calculator.expression(), QStringLiteral("2 +"));
     }
 
     void percentOfAHugeTotal() {

@@ -317,7 +317,7 @@ void Backend::pressBackspace() {
     if (m_justEvaluated)
         beginEditingAfterResult();
     if (inExponentForm(m_entry)) {
-        m_entry.clear();
+        m_entry = QStringLiteral("0");
         return;
     }
 
