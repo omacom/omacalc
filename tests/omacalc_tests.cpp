@@ -393,4 +393,4 @@ private:
 };
 
 QTEST_MAIN(OmacalcTest)
-#include "tst_omacalc.moc"
+#include "omacalc_tests.moc"

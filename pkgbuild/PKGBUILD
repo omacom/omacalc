@@ -1,0 +1,24 @@
+pkgname=omacalc
+pkgver=0.3.1
+pkgrel=1
+pkgdesc='Dead-simple calculator built with Qt Quick'
+arch=('x86_64' 'aarch64')
+license=('MIT' 'OFL-1.1')
+depends=('qt6-base' 'qt6-declarative' 'qt6-wayland' 'xdg-desktop-portal')
+makedepends=('cmake' 'gcc' 'make')
+source=()
+sha256sums=()
+
+build() {
+  cd "$startdir/.."
+  ./bin/build
+}
+
+package() {
+  cd "$startdir/.."
+  install -Dm755 build/omacalc "$pkgdir/usr/bin/omacalc"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 fonts/OFL.txt "$pkgdir/usr/share/licenses/$pkgname/OFL.txt"
+  install -Dm644 "$startdir/omacalc.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/omacalc.svg"
+  install -Dm644 "$startdir/omacalc.desktop" "$pkgdir/usr/share/applications/omacalc.desktop"
+}
