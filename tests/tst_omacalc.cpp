@@ -225,6 +225,19 @@ private slots:
         QCOMPARE(calculator.display(), QStringLiteral("2.5"));
     }
 
+    void percentOfAHugeTotal() {
+        Backend calculator;
+
+        // 1e308 is near the largest double; taking 100 % of it must not
+        // overflow on the way there.
+        press(calculator, "1 0 ^ 3 0 8 = - 1 0 0 % =");
+        QCOMPARE(calculator.display(), QStringLiteral("0"));
+
+        // A percentage beyond any double is an error, not an "inf" entry.
+        press(calculator, "clear 1 0 ^ 3 0 8 = + 1 0 0 0 %");
+        QCOMPARE(calculator.display(), QStringLiteral("Error"));
+    }
+
     void chainsFromResult() {
         Backend calculator;
         press(calculator, "6 × 7 = × 2 =");

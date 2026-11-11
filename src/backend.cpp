@@ -277,8 +277,15 @@ void Backend::pressPercent() {
         leftSide.removeLast();
         bool baseOk = false;
         const double base = evaluateTokens(leftSide, &baseOk);
+        // Divide first: 1e308 + 100 % must not overflow on the way to 1e308.
         if (baseOk)
-            percent = base * value / 100.0;
+            percent *= base;
+    }
+    if (!std::isfinite(percent)) {
+        m_errored = true;
+        m_tokens.clear();
+        m_entry.clear();
+        return;
     }
     m_entry = formatNumber(percent);
 }
