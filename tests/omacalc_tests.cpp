@@ -244,7 +244,7 @@ private slots:
         // A percentage beyond any double is an error, not an "inf" entry.
         press(calculator, "clear 1 0 ^ 3 0 8 = + 1 0 0 0 %");
         QCOMPARE(calculator.display(), QStringLiteral("Error"));
-        QCOMPARE(calculator.expression(), QStringLiteral("1e+308 + 1000 %"));
+        QCOMPARE(calculator.expression(), QStringLiteral("1e+308 + 1,000 %"));
     }
 
     void chainsFromResult() {
