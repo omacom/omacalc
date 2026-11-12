@@ -63,6 +63,11 @@ QString sealNumber(const QString &entry) {
 bool inExponentForm(const QString &entry) {
     return entry.contains(QLatin1Char('e'));
 }
+
+// No implicit multiplication: a closed group is followed by an operator.
+bool endsWithGroup(const QStringList &tokens) {
+    return !tokens.isEmpty() && tokens.last() == QStringLiteral(")");
+}
 }
 
 Backend::Backend(QObject *parent) : QObject(parent) {
@@ -169,6 +174,8 @@ void Backend::pressDigit(const QString &digit) {
         // appending to the result.
         pressClear();
     }
+    if (endsWithGroup(m_tokens))
+        return;
     if (inExponentForm(m_entry))
         m_entry.clear();
 
@@ -201,6 +208,8 @@ void Backend::pressDecimal() {
         pressClear();
     if (m_justEvaluated)
         pressClear();
+    if (endsWithGroup(m_tokens))
+        return;
     if (inExponentForm(m_entry))
         m_entry.clear();
 
@@ -225,7 +234,8 @@ void Backend::pressOperator(const QString &pretty) {
     if (!m_entry.isEmpty()) {
         m_tokens << sealNumber(m_entry) << pretty;
         m_entry.clear();
-    } else if (m_tokens.isEmpty()) {
+    } else if (m_tokens.isEmpty() || m_tokens.last() == QStringLiteral("(")) {
+        // A group starts like the expression does, so ( − 3 ) is 0 − 3.
         m_tokens << QStringLiteral("0") << pretty;
     } else if (isOperator(m_tokens.last())) {
         m_tokens.last() = pretty;
@@ -255,14 +265,7 @@ void Backend::pressParen(bool open) {
         return;
     }
 
-    if (!m_entry.isEmpty()) {
-        m_tokens << sealNumber(m_entry);
-        m_entry.clear();
-    }
-    if (m_tokens.isEmpty() || isOperator(m_tokens.last())
-            || m_tokens.last() == QStringLiteral("("))
-        return;
-
+    // With no group open, ) must leave the number being typed alone.
     int depth = 0;
     for (const QString &token : m_tokens) {
         if (token == QStringLiteral("("))
@@ -271,6 +274,13 @@ void Backend::pressParen(bool open) {
             --depth;
     }
     if (depth <= 0)
+        return;
+
+    if (!m_entry.isEmpty()) {
+        m_tokens << sealNumber(m_entry);
+        m_entry.clear();
+    }
+    if (isOperator(m_tokens.last()) || m_tokens.last() == QStringLiteral("("))
         return;
     m_tokens << QStringLiteral(")");
 }
@@ -314,6 +324,8 @@ void Backend::pressPercent() {
         m_entry = formatNumber(percent);
         return;
     }
+    if (endsWithGroup(m_tokens))
+        return;
 
     bool ok = false;
     const double value = QLocale::c().toDouble(currentValue(), &ok);
@@ -324,6 +336,19 @@ void Backend::pressPercent() {
     if (!m_tokens.isEmpty() && (m_tokens.last() == plusSign || m_tokens.last() == minusSign)) {
         QStringList leftSide = m_tokens;
         leftSide.removeLast();
+        // Inside an open group, the running total is the group's own.
+        int depth = 0;
+        for (int i = leftSide.size() - 1; i >= 0; --i) {
+            if (leftSide.at(i) == QStringLiteral(")")) {
+                ++depth;
+            } else if (leftSide.at(i) == QStringLiteral("(")) {
+                if (depth == 0) {
+                    leftSide = leftSide.mid(i + 1);
+                    break;
+                }
+                --depth;
+            }
+        }
         bool baseOk = false;
         const double base = evaluateTokens(leftSide, &baseOk);
         if (baseOk) {
@@ -350,6 +375,8 @@ void Backend::pressToggleSign() {
         return;
     if (m_justEvaluated)
         beginEditingAfterResult();
+    if (endsWithGroup(m_tokens))
+        return;
 
     // With nothing typed yet, start a fresh negative operand instead of
     // dredging up the previous one: 4 + ± 2 enters -2, not -42.
@@ -544,6 +571,8 @@ void Backend::pasteNumber() {
 
     if (m_errored || m_justEvaluated)
         pressClear();
+    if (endsWithGroup(m_tokens))
+        return;
     m_entry = formatNumber(value);
     emit calculationChanged();
 }
