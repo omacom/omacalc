@@ -2,6 +2,8 @@
 #include <QClipboard>
 #include <QElapsedTimer>
 #include <QGuiApplication>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QRect>
 #include <QSettings>
 #include <QVariant>
@@ -9,6 +11,7 @@
 
 #include "backend.h"
 #include "systemtheme.h"
+#include "translator.h"
 
 namespace {
 void press(Backend &calculator, const QString &keys) {
@@ -197,6 +200,51 @@ private slots:
 
         press(calculator, "backspace backspace backspace");
         QCOMPARE(calculator.display(), QStringLiteral("0"));
+    }
+
+    void treatsExponentFormAsAWholeValue() {
+        Backend calculator;
+
+        // A digit after a tiny percent starts a new number rather than
+        // extending the exponent of 1e-05 into 1e-055.
+        press(calculator, ". 0 0 1 % 5");
+        QCOMPARE(calculator.display(), QStringLiteral("5"));
+
+        press(calculator, "clear . 0 0 1 % .");
+        QCOMPARE(calculator.display(), QStringLiteral("0."));
+
+        // Backspace on 1e+15 clears it rather than leaving 1e+1, which is 10.
+        press(calculator, "clear 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 × 1 0 = backspace");
+        QCOMPARE(calculator.display(), QStringLiteral("0"));
+
+        press(calculator, "clear . 0 0 1 % sign × 2 =");
+        QCOMPARE(calculator.display(), QStringLiteral("-2e-05"));
+
+        // A fresh number replaces only the operand, not the pending sum, and
+        // a decimal point starts one too rather than landing after 1e-05.
+        press(calculator, "clear 2 + . 0 0 1 % 5 =");
+        QCOMPARE(calculator.display(), QStringLiteral("7"));
+        press(calculator, "clear 2 + . 0 0 1 % . 5 =");
+        QCOMPARE(calculator.display(), QStringLiteral("2.5"));
+
+        // Backspace leaves a zero operand, not the 2 before it.
+        press(calculator, "clear 2 + . 0 0 1 % backspace");
+        QCOMPARE(calculator.display(), QStringLiteral("0"));
+        QCOMPARE(calculator.expression(), QStringLiteral("2 +"));
+    }
+
+    void percentOfAHugeTotal() {
+        Backend calculator;
+
+        // 1e308 is near the largest double; taking 100 % of it must not
+        // overflow on the way there.
+        press(calculator, "1 0 ^ 3 0 8 = - 1 0 0 % =");
+        QCOMPARE(calculator.display(), QStringLiteral("0"));
+
+        // A percentage beyond any double is an error, not an "inf" entry.
+        press(calculator, "clear 1 0 ^ 3 0 8 = + 1 0 0 0 %");
+        QCOMPARE(calculator.display(), QStringLiteral("Error"));
+        QCOMPARE(calculator.expression(), QStringLiteral("1e+308 + 1000 %"));
     }
 
     void chainsFromResult() {
@@ -403,6 +451,43 @@ private slots:
         QVERIFY(theme.textScale() <= 3.0);
     }
 
+    void everyCatalogParses() {
+        // A broken catalog loads as nothing, which shows English rather than failing.
+        const QString catalogs = QFINDTESTDATA("../src/i18n");
+        QVERIFY(!catalogs.isEmpty());
+        const QStringList files = QDir(catalogs).entryList({QStringLiteral("*.json")});
+        QVERIFY(!files.isEmpty());
+        for (const QString &name : files) {
+            QFile file(catalogs + QLatin1Char('/') + name);
+            QVERIFY(file.open(QIODevice::ReadOnly));
+            QJsonParseError error;
+            const QJsonDocument catalog = QJsonDocument::fromJson(file.readAll(), &error);
+            QVERIFY2(error.error == QJsonParseError::NoError && catalog.isObject(),
+                     qPrintable(name + QStringLiteral(": ") + error.errorString()));
+            for (const QJsonValue &value : catalog.object())
+                QVERIFY2(value.isString() && !value.toString().isEmpty(), qPrintable(name));
+        }
+    }
+
+    void showsErrorInTheOmarchyLanguage() {
+        QTemporaryDir directory;
+        QFile language(directory.filePath(QStringLiteral("language")));
+        QVERIFY(language.open(QIODevice::WriteOnly));
+        language.write("da\n");
+        language.close();
+
+        Translator translator(language.fileName(), QFINDTESTDATA("../src/i18n"));
+        QCoreApplication::installTranslator(&translator);
+        Backend calculator;
+        press(calculator, "1 ÷ 0 =");
+        const QString display = calculator.display();
+        QCoreApplication::removeTranslator(&translator);
+        QGuiApplication::setLayoutDirection(Qt::LeftToRight);
+        QLocale::setDefault(QLocale::c());
+
+        QCOMPARE(display, QStringLiteral("Fejl"));
+    }
+
     void formatsNumbers() {
         QCOMPARE(Backend::formatNumber(133), QStringLiteral("133"));
         QCOMPARE(Backend::formatNumber(0.1 + 0.2), QStringLiteral("0.3"));
@@ -464,4 +549,4 @@ private:
 };
 
 QTEST_MAIN(OmacalcTest)
-#include "tst_omacalc.moc"
+#include "omacalc_tests.moc"
