@@ -476,7 +476,12 @@ bool parsePastedExpression(const QString &text, QStringList *tokens, QString *en
         if (number.isEmpty())
             return false;
         bool ok = false;
-        const double value = QLocale::c().toDouble(number, &ok);
+        double value = QLocale::c().toDouble(number, &ok);
+        if (!ok) {
+            // 1,000 is a thousands separator; 1,5 is a decimal comma.
+            QString dotted = number;
+            value = QLocale::c().toDouble(dotted.replace(QLatin1Char(','), QLatin1Char('.')), &ok);
+        }
         if (!ok || !std::isfinite(value))
             return false;
         if (!tokens->isEmpty() && !isOperator(tokens->last()))
@@ -490,8 +495,21 @@ bool parsePastedExpression(const QString &text, QStringList *tokens, QString *en
         const QChar character = text.at(i);
         if (character.isSpace())
             continue;
+        // 1e-05 is one number, as Copy writes it: the sign after the e
+        // belongs to the exponent.
+        if ((character == QLatin1Char('e') || character == QLatin1Char('E'))
+                && !number.isEmpty() && !number.contains(QLatin1Char('e'))) {
+            number += QLatin1Char('e');
+            const QString sign = i + 1 < text.size() ? operatorFromChar(text.at(i + 1)) : QString();
+            if (sign == plusSign || sign == minusSign) {
+                number += (sign == plusSign) ? QLatin1Char('+') : QLatin1Char('-');
+                ++i;
+            }
+            continue;
+        }
         const QString op = operatorFromChar(character);
-        if (!op.isEmpty() && !(number.isEmpty() && (op == minusSign))) {
+        const bool isSign = number.isEmpty() && (op == minusSign || op == plusSign);
+        if (!op.isEmpty() && !isSign) {
             if (!number.isEmpty() && !seal())
                 return false;
             if (tokens->isEmpty() || isOperator(tokens->last()))
@@ -501,11 +519,11 @@ bool parsePastedExpression(const QString &text, QStringList *tokens, QString *en
         }
         if (character.isDigit() || character == QLatin1Char('.')
                 || character == QLatin1Char(',')) {
-            number += (character == QLatin1Char(',')) ? QLatin1Char('.') : character;
+            number += character;
             continue;
         }
-        if (op == minusSign && number.isEmpty()) {
-            number = QStringLiteral("-");
+        if (isSign) {
+            number = (op == minusSign) ? QStringLiteral("-") : QStringLiteral("+");
             continue;
         }
         return false;
@@ -537,7 +555,9 @@ void Backend::pasteNumber() {
 
     if (m_errored || m_justEvaluated)
         pressClear();
-    m_tokens = tokens;
+    // A lone number only replaces the entry, so it can finish 5 + as before.
+    if (!tokens.isEmpty())
+        m_tokens = tokens;
     m_entry = entry;
     emit calculationChanged();
 }
