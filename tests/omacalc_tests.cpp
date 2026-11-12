@@ -340,6 +340,54 @@ private slots:
         }(), 1000);
     }
 
+    // Qt reaps a helper that failed to start only after errorOccurred returns, so
+    // a queued copy launched from inside that signal would leave it a zombie.
+    void reapsAHelperThatFailedToStart() {
+        QTemporaryDir helperDir;
+        QVERIFY(helperDir.isValid());
+
+        const QString logPath = helperDir.path() + QStringLiteral("/copies.log");
+        const QString scriptPath = helperDir.path() + QStringLiteral("/fake-wl-copy.sh");
+        QFile script(scriptPath);
+        QVERIFY(script.open(QIODevice::WriteOnly | QIODevice::Text));
+        script.write("#!/usr/bin/env sh\nprintf '%s\\n' \"$2\" >> \"" + logPath.toUtf8() + "\"\n");
+        script.close();
+        QVERIFY(script.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner
+                                      | QFileDevice::ExeOwner));
+
+        const auto zombieChildren = []() {
+            int zombies = 0;
+            const QStringList tasks = QDir(QStringLiteral("/proc/self/task")).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+            for (const QString &task : tasks) {
+                QFile children(QStringLiteral("/proc/self/task/%1/children").arg(task));
+                if (!children.open(QIODevice::ReadOnly))
+                    continue;
+                const QStringList pids = QString::fromLatin1(children.readAll()).split(QLatin1Char(' '), Qt::SkipEmptyParts);
+                for (const QString &pid : pids) {
+                    QFile stat(QStringLiteral("/proc/%1/stat").arg(pid));
+                    if (stat.open(QIODevice::ReadOnly) && stat.readAll().contains(") Z "))
+                        ++zombies;
+                }
+            }
+            return zombies;
+        };
+        const int zombiesBefore = zombieChildren();
+
+        Backend calculator;
+        calculator.setWaylandClipboardHelper(helperDir.path() + QStringLiteral("/missing-wl-copy"));
+        calculator.copyResult();
+        calculator.setWaylandClipboardHelper(scriptPath);
+        press(calculator, "7");
+        calculator.copyResult();
+
+        QTRY_VERIFY_WITH_TIMEOUT([&]() {
+            QFile logFile(logPath);
+            return logFile.open(QIODevice::ReadOnly) && logFile.readAll() == "7\n";
+        }(), 5000);
+        QTest::qWait(100);
+        QCOMPARE(zombieChildren(), zombiesBefore);
+    }
+
     void pastesNumbers() {
         Backend calculator;
         QClipboard *clipboard = QGuiApplication::clipboard();

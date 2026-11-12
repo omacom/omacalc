@@ -523,7 +523,10 @@ void Backend::startNextWaylandClipboardCopy() {
                 [this](QProcess::ProcessError error) {
             if (error == QProcess::FailedToStart) {
                 m_activeWaylandClipboardText.reset();
-                startNextWaylandClipboardCopy();
+                // Qt reaps the failed child after this signal returns, so restarting
+                // here would hand it the new child to clean up instead.
+                QMetaObject::invokeMethod(this, &Backend::startNextWaylandClipboardCopy,
+                                          Qt::QueuedConnection);
             }
         });
     }
