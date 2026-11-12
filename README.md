@@ -30,6 +30,7 @@ Everything works from the keyboard too:
 - `Backspace` deletes the last digit.
 - `C` or `Escape` clears.
 - `S` toggles the sign.
+- `V` replaces the number on screen with its square root. A negative number is an error.
 - `Ctrl+C` or `Super+C` copies the result.
 - `Ctrl+V` or `Super+V` pastes a number.
 

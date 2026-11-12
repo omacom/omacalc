@@ -54,6 +54,7 @@ private:
     void pressOperator(const QString &pretty);
     void pressEquals();
     void pressPercent();
+    void pressSqrt();
     void pressToggleSign();
     void pressBackspace();
     void pressClear();

@@ -145,6 +145,21 @@ private slots:
         QCOMPARE(calculator.display(), QStringLiteral("0.5"));
     }
 
+    void squareRoot() {
+        Backend calculator;
+        press(calculator, "9 sqrt");
+        QCOMPARE(calculator.display(), QStringLiteral("3"));
+        press(calculator, "+ 2 =");
+        QCOMPARE(calculator.display(), QStringLiteral("5"));
+        press(calculator, "clear 4 sign sqrt");
+        QCOMPARE(calculator.display(), QStringLiteral("Error"));
+
+        press(calculator, "clear 4 ÷ 9 = sqrt");
+        QCOMPARE(calculator.display(), QStringLiteral("0.666666666666667"));
+        press(calculator, "sign sqrt");
+        QCOMPARE(calculator.expression(), QString());
+    }
+
     void percentAndSign() {
         Backend calculator;
         press(calculator, "8 sign");

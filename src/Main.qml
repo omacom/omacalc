@@ -88,6 +88,8 @@ ApplicationWindow {
                 backend.pressKey(".");
             } else if (event.text === "s" || event.text === "S") {
                 backend.pressKey("sign");
+            } else if (event.text === "v" || event.text === "V") {
+                backend.pressKey("sqrt");
             } else if (event.text === "c" || event.text === "C") {
                 backend.pressKey("clear");
             } else if (event.text === "x" || event.text === "X") {
