@@ -1,8 +1,4 @@
 /build/
-/build-tests/
-*.o
-*.moc
-moc_*.cpp
-qrc_*.cpp
-.qmake.stash
-Makefile
+/pkgbuild/pkg/
+/pkgbuild/src/
+*.pkg.tar.*

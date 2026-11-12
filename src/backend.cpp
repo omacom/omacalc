@@ -74,6 +74,12 @@ double addWithoutNoise(double a, double b) {
     const int decimals = std::max(0, 14 - int(std::floor(std::log10(larger))));
     return QLocale::c().toDouble(QString::number(sum, 'f', decimals));
 }
+
+// A result, percent, or paste too large or small for plain digits arrives as
+// 1e-07. It is a whole value: typing must not edit its exponent.
+bool inExponentForm(const QString &entry) {
+    return entry.contains(QLatin1Char('e'));
+}
 }
 
 Backend::Backend(QObject *parent) : QObject(parent) {
@@ -101,7 +107,7 @@ QString Backend::expression() const {
 
 QString Backend::display() const {
     if (m_errored)
-        return QStringLiteral("Error");
+        return tr("Error");
     if (!m_entry.isEmpty())
         return m_entry;
     if (m_justEvaluated)
@@ -172,6 +178,8 @@ void Backend::pressDigit(const QString &digit) {
         // appending to the result.
         pressClear();
     }
+    if (inExponentForm(m_entry))
+        m_entry.clear();
 
     if (m_entry == QStringLiteral("0")) {
         m_entry = digit;
@@ -202,6 +210,8 @@ void Backend::pressDecimal() {
         pressClear();
     if (m_justEvaluated)
         pressClear();
+    if (inExponentForm(m_entry))
+        m_entry.clear();
 
     if (m_entry.isEmpty())
         m_entry = QStringLiteral("0.");
@@ -284,8 +294,21 @@ void Backend::pressPercent() {
         leftSide.removeLast();
         bool baseOk = false;
         const double base = evaluateTokens(leftSide, &baseOk);
-        if (baseOk)
+        if (baseOk) {
             percent = base * value / 100.0;
+            // 1e308 + 100 % overflows multiplying first; dividing first
+            // would round a tiny percentage, so only fall back to it.
+            if (!std::isfinite(percent))
+                percent = base * (value / 100.0);
+        }
+    }
+    if (!std::isfinite(percent)) {
+        m_evaluatedExpression = prettyExpression(m_tokens + QStringList(currentValue()))
+            + QStringLiteral(" %");
+        m_errored = true;
+        m_tokens.clear();
+        m_entry.clear();
+        return;
     }
     m_entry = formatNumber(percent);
 }
@@ -316,6 +339,10 @@ void Backend::pressBackspace() {
     }
     if (m_justEvaluated)
         beginEditingAfterResult();
+    if (inExponentForm(m_entry)) {
+        m_entry = QStringLiteral("0");
+        return;
+    }
 
     m_entry.chop(1);
     if (m_entry == QStringLiteral("-"))
