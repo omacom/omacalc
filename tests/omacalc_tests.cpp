@@ -110,6 +110,34 @@ private slots:
         QCOMPARE(calculator.display(), QStringLiteral("1.55"));
     }
 
+    void keepsCancellationNoiseOutOfSums() {
+        Backend calculator;
+        // Close operands cancel their leading digits, leaving their binary
+        // noise in the result's fifteenth significant digit.
+        press(calculator, "1 3 3 7 3 . 5 4 - 1 3 4 3 8 . 7 7 =");
+        QCOMPARE(calculator.display(), QStringLiteral("-65.23"));
+
+        press(calculator, "clear 0 . 3 - 0 . 1 - 0 . 2 =");
+        QCOMPARE(calculator.display(), QStringLiteral("0"));
+
+        // Integers carry no noise, so a small difference of large ones stays.
+        press(calculator, "clear 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 + 1 - "
+                          "9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 =");
+        QCOMPARE(calculator.display(), QStringLiteral("1"));
+
+        // A real difference in the last entered digit survives, even when
+        // noise leaves the sum just under its power of ten.
+        press(calculator, "clear 1 . 0 0 0 0 0 0 0 0 0 0 0 0 0 1 - 1 =");
+        QCOMPARE(calculator.display(), QStringLiteral("1e-14"));
+    }
+
+    void keepsIntegerSumsPast2To53Exact() {
+        Backend calculator;
+        // 2^53 + 4096 is still an exact double, so no digit may be rounded.
+        press(calculator, "2 ^ 5 3 + 4 0 9 6 - 2 ^ 5 3 =");
+        QCOMPARE(calculator.display(), QStringLiteral("4096"));
+    }
+
     void divisionByZeroErrors() {
         Backend calculator;
         press(calculator, "1 ÷ 0 =");

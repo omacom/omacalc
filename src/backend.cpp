@@ -58,6 +58,23 @@ QString sealNumber(const QString &entry) {
     return sealed;
 }
 
+// Decimals like 13373.54 are stored with binary noise in their last bits.
+// When close operands cancel, that noise climbs into the result's fifteenth
+// significant digit: 13373.54 − 13438.77 = -65.22999999999956. A sum is only
+// as precise as its larger operand, so round at that operand's fifteenth
+// significant digit. The position comes from the operand, not the sum, whose
+// noise can drop it below a power of ten. Rounding at a decimal place never
+// drops an integer digit, so integers still add exactly.
+double addWithoutNoise(double a, double b) {
+    const double sum = a + b;
+    const double larger = std::max(std::fabs(a), std::fabs(b));
+    if (sum == 0 || !std::isfinite(sum))
+        return sum;
+
+    const int decimals = std::max(0, 14 - int(std::floor(std::log10(larger))));
+    return QLocale::c().toDouble(QString::number(sum, 'f', decimals));
+}
+
 // A result, percent, or paste too large or small for plain digits arrives as
 // 1e-07. It is a whole value: typing must not edit its exponent.
 bool inExponentForm(const QString &entry) {
@@ -421,9 +438,9 @@ double Backend::evaluateTokens(const QStringList &tokens, bool *ok) {
     double total = additiveValues.first();
     for (int i = 0; i < additiveOperators.size(); ++i) {
         if (additiveOperators.at(i) == plusSign)
-            total += additiveValues.at(i + 1);
+            total = addWithoutNoise(total, additiveValues.at(i + 1));
         else
-            total -= additiveValues.at(i + 1);
+            total = addWithoutNoise(total, -additiveValues.at(i + 1));
     }
 
     if (!std::isfinite(total))
