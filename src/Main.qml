@@ -10,7 +10,7 @@ ApplicationWindow {
     minimumWidth: 300
     minimumHeight: 430
     visible: false
-    title: "Omacalc"
+    title: qsTr("Calculator")
 
     readonly property bool darkMode: backend.darkMode
     readonly property color pageColor: backend.themeBackground
