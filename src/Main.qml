@@ -37,10 +37,15 @@ ApplicationWindow {
     Material.accent: backend.themeAccent
     color: pageColor
 
+    function copyResult() {
+        backend.copyResult();
+        copyFlash.restart();
+    }
+
     Shortcut {
         sequences: ["Ctrl+C", "Meta+C"]
         context: Qt.ApplicationShortcut
-        onActivated: backend.copyResult()
+        onActivated: win.copyResult()
     }
 
     Shortcut {
@@ -123,17 +128,35 @@ ApplicationWindow {
             }
 
             Text {
+                id: resultText
+                property real copyFlashProgress: 0
+
                 anchors.bottom: parent.bottom
                 anchors.left: parent.left
                 anchors.right: parent.right
                 horizontalAlignment: Text.AlignRight
                 verticalAlignment: Text.AlignBottom
                 text: backend.display
-                color: win.inkColor
+                color: win.mixColors(win.inkColor, win.pageColor, copyFlashProgress)
                 fontSizeMode: Text.HorizontalFit
                 minimumPixelSize: win.scaledSize(22)
                 font.family: "iA Writer Mono S"
                 font.pixelSize: win.scaledSize(76)
+
+                NumberAnimation on copyFlashProgress {
+                    id: copyFlash
+                    running: false
+                    from: 0.65
+                    to: 0
+                    duration: 180
+                    easing.type: Easing.OutQuad
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: win.copyResult()
+                }
             }
         }
 

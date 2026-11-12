@@ -269,6 +269,126 @@ private slots:
         QCOMPARE(calculator.display(), QStringLiteral("9"));
     }
 
+    void copiesResult() {
+        QTemporaryDir helperDir;
+        QVERIFY(helperDir.isValid());
+
+        const QString logPath = helperDir.path() + QStringLiteral("/copies.log");
+        const QString slowMarkerPath = helperDir.path() + QStringLiteral("/slow-once");
+        const QString scriptPath = helperDir.path() + QStringLiteral("/fake-wl-copy.sh");
+        QFile script(scriptPath);
+        QVERIFY(script.open(QIODevice::WriteOnly | QIODevice::Text));
+        const QByteArray scriptBody =
+            "#!/usr/bin/env sh\n"
+            "if [ \"$2\" = \"0\" ]; then sleep 0.08; fi\n"
+            "if [ \"$2\" = \"99\" ] && [ ! -e \"" + slowMarkerPath.toUtf8() + "\" ]; then\n"
+            "  : > \"" + slowMarkerPath.toUtf8() + "\"\n"
+            "  sleep 1\n"
+            "fi\n"
+            "printf '%s|%s\\n' \"$1\" \"$2\" >> \"" + logPath.toUtf8() + "\"\n";
+        QCOMPARE(script.write(scriptBody), qint64(scriptBody.size()));
+        script.close();
+        QVERIFY(script.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner
+                                      | QFileDevice::ExeOwner));
+
+        Backend calculator;
+        calculator.setWaylandClipboardHelper(scriptPath);
+        QClipboard *clipboard = QGuiApplication::clipboard();
+
+        // Trigger three copies while the first slow helper is still running;
+        // intermediate queued values collapse to the latest so an older helper
+        // never finishes after and overwrites the newest copy.
+        calculator.copyResult();
+        QCOMPARE(clipboard->text(), QStringLiteral("0"));
+
+        press(calculator, "6 × 7 =");
+        calculator.copyResult();
+        QCOMPARE(clipboard->text(), QStringLiteral("42"));
+
+        press(calculator, "sign");
+        calculator.copyResult();
+        QCOMPARE(clipboard->text(), QStringLiteral("-42"));
+
+        QTRY_VERIFY_WITH_TIMEOUT([&]() {
+            QFile logFile(logPath);
+            if (!logFile.open(QIODevice::ReadOnly | QIODevice::Text))
+                return false;
+            const QStringList lines = QString::fromUtf8(logFile.readAll())
+                .split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+            return lines == QStringList({QStringLiteral("--|0"), QStringLiteral("--|-42")});
+        }(), 1000);
+
+        // If the window closes before an in-flight helper finishes, the
+        // destructor terminates the unfinished child and hands the active copy
+        // off via startDetached so the result is not lost.
+        {
+            Backend closingCalculator;
+            closingCalculator.setWaylandClipboardHelper(scriptPath);
+            press(closingCalculator, "9 9");
+            closingCalculator.copyResult();
+        }
+
+        QTRY_VERIFY_WITH_TIMEOUT([&]() {
+            QFile logFile(logPath);
+            if (!logFile.open(QIODevice::ReadOnly | QIODevice::Text))
+                return false;
+            const QStringList lines = QString::fromUtf8(logFile.readAll())
+                .split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+            return lines == QStringList({QStringLiteral("--|0"),
+                                         QStringLiteral("--|-42"),
+                                         QStringLiteral("--|99")});
+        }(), 1000);
+    }
+
+    // Qt reaps a helper that failed to start only after errorOccurred returns, so
+    // a queued copy launched from inside that signal would leave it a zombie.
+    void reapsAHelperThatFailedToStart() {
+        QTemporaryDir helperDir;
+        QVERIFY(helperDir.isValid());
+
+        const QString logPath = helperDir.path() + QStringLiteral("/copies.log");
+        const QString scriptPath = helperDir.path() + QStringLiteral("/fake-wl-copy.sh");
+        QFile script(scriptPath);
+        QVERIFY(script.open(QIODevice::WriteOnly | QIODevice::Text));
+        script.write("#!/usr/bin/env sh\nprintf '%s\\n' \"$2\" >> \"" + logPath.toUtf8() + "\"\n");
+        script.close();
+        QVERIFY(script.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner
+                                      | QFileDevice::ExeOwner));
+
+        const auto zombieChildren = []() {
+            int zombies = 0;
+            const QStringList tasks = QDir(QStringLiteral("/proc/self/task")).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+            for (const QString &task : tasks) {
+                QFile children(QStringLiteral("/proc/self/task/%1/children").arg(task));
+                if (!children.open(QIODevice::ReadOnly))
+                    continue;
+                const QStringList pids = QString::fromLatin1(children.readAll()).split(QLatin1Char(' '), Qt::SkipEmptyParts);
+                for (const QString &pid : pids) {
+                    QFile stat(QStringLiteral("/proc/%1/stat").arg(pid));
+                    if (stat.open(QIODevice::ReadOnly) && stat.readAll().contains(") Z "))
+                        ++zombies;
+                }
+            }
+            return zombies;
+        };
+        QVERIFY(QFile::exists(QStringLiteral("/proc/self/task/%1/children")
+                                  .arg(QCoreApplication::applicationPid())));
+        const int zombiesBefore = zombieChildren();
+
+        Backend calculator;
+        calculator.setWaylandClipboardHelper(helperDir.path() + QStringLiteral("/missing-wl-copy"));
+        calculator.copyResult();
+        calculator.setWaylandClipboardHelper(scriptPath);
+        press(calculator, "7");
+        calculator.copyResult();
+
+        QTRY_VERIFY_WITH_TIMEOUT([&]() {
+            QFile logFile(logPath);
+            return logFile.open(QIODevice::ReadOnly) && logFile.readAll() == "7\n";
+        }(), 5000);
+        QTRY_COMPARE_WITH_TIMEOUT(zombieChildren(), zombiesBefore, 2000);
+    }
+
     void pastesNumbers() {
         Backend calculator;
         QClipboard *clipboard = QGuiApplication::clipboard();

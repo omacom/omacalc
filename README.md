@@ -30,7 +30,7 @@ Everything works from the keyboard too:
 - `Backspace` deletes the last digit.
 - `C` or `Escape` clears.
 - `S` toggles the sign.
-- `Ctrl+C` or `Super+C` copies the result.
+- `Ctrl+C`, `Super+C`, or clicking the result copies it.
 - `Ctrl+V` or `Super+V` pastes a number.
 
 Colors follow the current Omarchy theme (`~/.local/state/omarchy/current/theme/colors.toml`)

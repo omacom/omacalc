@@ -6,7 +6,9 @@
 #include <QFile>
 #include <QGuiApplication>
 #include <QLocale>
+#include <QProcess>
 #include <QSettings>
+#include <QStandardPaths>
 #include <QTextStream>
 #include <QVariantMap>
 #include <cmath>
@@ -80,6 +82,29 @@ Backend::Backend(QObject *parent) : QObject(parent) {
         loadOmarchyTheme();
         watchOmarchyTheme();
     });
+}
+
+Backend::~Backend() {
+    if (m_waylandClipboardProcess
+            && m_waylandClipboardProcess->state() != QProcess::NotRunning) {
+        disconnect(m_waylandClipboardProcess, nullptr, this, nullptr);
+        if (m_pendingWaylandClipboardText.has_value()
+                || !m_waylandClipboardProcess->waitForFinished(100)
+                || m_waylandClipboardProcess->exitStatus() != QProcess::NormalExit
+                || m_waylandClipboardProcess->exitCode() != 0) {
+            if (m_waylandClipboardProcess->state() != QProcess::NotRunning) {
+                m_waylandClipboardProcess->kill();
+                m_waylandClipboardProcess->waitForFinished(100);
+            }
+            if (!m_pendingWaylandClipboardText.has_value())
+                m_pendingWaylandClipboardText = m_activeWaylandClipboardText;
+        }
+    }
+    if (m_pendingWaylandClipboardText.has_value()) {
+        const QString helper = resolveWaylandClipboardHelper();
+        if (!helper.isEmpty())
+            QProcess::startDetached(helper, {QStringLiteral("--"), *m_pendingWaylandClipboardText});
+    }
 }
 
 QString Backend::expression() const {
@@ -444,9 +469,72 @@ QString Backend::formatNumber(double value) {
     return QString::number(value, 'g', 15);
 }
 
-void Backend::copyResult() const {
+void Backend::copyResult() {
+    const QString text = display();
     if (QClipboard *clipboard = QGuiApplication::clipboard())
-        clipboard->setText(display());
+        clipboard->setText(text);
+
+    // Wayland selections owned by QClipboard disappear when the window closes;
+    // hand a copy to wl-copy so Ctrl+C followed by closing Omacalc still pastes.
+    // Serialize helper launches so an earlier copy cannot finish after a later one.
+    if (!resolveWaylandClipboardHelper().isEmpty()) {
+        m_pendingWaylandClipboardText = text;
+        startNextWaylandClipboardCopy();
+    }
+}
+
+void Backend::setWaylandClipboardHelper(const QString &program) {
+    m_waylandClipboardHelper = program;
+}
+
+QString Backend::resolveWaylandClipboardHelper() const {
+    if (!m_waylandClipboardHelper.isEmpty())
+        return m_waylandClipboardHelper;
+    if (QGuiApplication::platformName().startsWith(QStringLiteral("wayland")))
+        return QStandardPaths::findExecutable(QStringLiteral("wl-copy"));
+    return QString();
+}
+
+void Backend::startNextWaylandClipboardCopy() {
+    if (!m_pendingWaylandClipboardText.has_value())
+        return;
+    if (m_waylandClipboardProcess
+            && m_waylandClipboardProcess->state() != QProcess::NotRunning)
+        return;
+
+    const QString helper = resolveWaylandClipboardHelper();
+    if (helper.isEmpty()) {
+        m_activeWaylandClipboardText.reset();
+        m_pendingWaylandClipboardText.reset();
+        return;
+    }
+
+    if (!m_waylandClipboardProcess) {
+        m_waylandClipboardProcess = new QProcess(this);
+        m_waylandClipboardProcess->setStandardInputFile(QProcess::nullDevice());
+        m_waylandClipboardProcess->setStandardOutputFile(QProcess::nullDevice());
+        m_waylandClipboardProcess->setStandardErrorFile(QProcess::nullDevice());
+        connect(m_waylandClipboardProcess, &QProcess::finished, this,
+                [this](int, QProcess::ExitStatus) {
+            m_activeWaylandClipboardText.reset();
+            startNextWaylandClipboardCopy();
+        });
+        connect(m_waylandClipboardProcess, &QProcess::errorOccurred, this,
+                [this](QProcess::ProcessError error) {
+            if (error == QProcess::FailedToStart) {
+                m_activeWaylandClipboardText.reset();
+                // Qt reaps the failed child after this signal returns, so restarting
+                // here would hand it the new child to clean up instead.
+                QMetaObject::invokeMethod(this, &Backend::startNextWaylandClipboardCopy,
+                                          Qt::QueuedConnection);
+            }
+        });
+    }
+
+    const QString text = *m_pendingWaylandClipboardText;
+    m_activeWaylandClipboardText = text;
+    m_pendingWaylandClipboardText.reset();
+    m_waylandClipboardProcess->start(helper, {QStringLiteral("--"), text});
 }
 
 // Paste replaces the current entry when the clipboard holds a number,

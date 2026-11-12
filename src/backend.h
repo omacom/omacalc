@@ -2,9 +2,11 @@
 
 #include <QFileSystemWatcher>
 #include <QObject>
+#include <QProcess>
 #include <QString>
 #include <QStringList>
 #include <QVariantMap>
+#include <optional>
 
 class Backend : public QObject {
     Q_OBJECT
@@ -19,6 +21,7 @@ class Backend : public QObject {
 
 public:
     explicit Backend(QObject *parent = nullptr);
+    ~Backend() override;
 
     QString expression() const;
     QString display() const;
@@ -36,8 +39,9 @@ public:
     static QString formatNumber(double value);
 
     Q_INVOKABLE void pressKey(const QString &key);
-    Q_INVOKABLE void copyResult() const;
+    Q_INVOKABLE void copyResult();
     Q_INVOKABLE void pasteNumber();
+    void setWaylandClipboardHelper(const QString &program);
     // Launch size for the current text scale. Not a live binding: the window
     // reads it once, and a later scale change waits until the next launch.
     Q_INVOKABLE QVariantMap defaultWindowSize() const;
@@ -65,6 +69,8 @@ private:
     void loadOmarchyTheme();
     void watchOmarchyTheme();
     void discardSavedWindowGeometry();
+    QString resolveWaylandClipboardHelper() const;
+    void startNextWaylandClipboardCopy();
 
     QStringList m_tokens;
     QString m_entry;
@@ -81,4 +87,8 @@ private:
     QString m_themeAccent;
     QString m_themeSelection;
     QFileSystemWatcher m_themeWatcher;
+    QString m_waylandClipboardHelper;
+    std::optional<QString> m_activeWaylandClipboardText;
+    std::optional<QString> m_pendingWaylandClipboardText;
+    QProcess *m_waylandClipboardProcess = nullptr;
 };
