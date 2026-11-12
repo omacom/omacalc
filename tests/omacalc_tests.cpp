@@ -180,13 +180,13 @@ private slots:
 
         // Integers within the 15-digit entry limit survive exactly.
         press(calculator, "clear 9 9 9 9 9 9 9 9 9 9 9 9 9 9 =");
-        QCOMPARE(calculator.display(), QStringLiteral("99999999999999"));
+        QCOMPARE(calculator.display(), QStringLiteral("99,999,999,999,999"));
     }
 
     void capsEntryAtFifteenDigits() {
         Backend calculator;
         press(calculator, "1 2 3 4 5 6 7 8 9 1 2 3 4 5 6 7 8");
-        QCOMPARE(calculator.display(), QStringLiteral("123456789123456"));
+        QCOMPARE(calculator.display(), QStringLiteral("123,456,789,123,456"));
 
         // The decimal point does not count against the digit cap.
         press(calculator, "clear . 1 2 3 4 5 6 7 8 9 1 2 3 4 5 6 7");
@@ -244,7 +244,7 @@ private slots:
         // A percentage beyond any double is an error, not an "inf" entry.
         press(calculator, "clear 1 0 ^ 3 0 8 = + 1 0 0 0 %");
         QCOMPARE(calculator.display(), QStringLiteral("Error"));
-        QCOMPARE(calculator.expression(), QStringLiteral("1e+308 + 1000 %"));
+        QCOMPARE(calculator.expression(), QStringLiteral("1e+308 + 1,000 %"));
     }
 
     void chainsFromResult() {
@@ -289,6 +289,55 @@ private slots:
         clipboard->setText(QStringLiteral("not a number"));
         calculator.pasteNumber();
         QCOMPARE(calculator.display(), QStringLiteral("1.5"));
+
+        // Thousands separators, as the display shows them, paste back in.
+        clipboard->setText(QStringLiteral("1,234,567.89"));
+        calculator.pasteNumber();
+        QCOMPARE(calculator.display(), QStringLiteral("1,234,567.89"));
+
+        clipboard->setText(QStringLiteral("−12,000"));
+        calculator.pasteNumber();
+        QCOMPARE(calculator.display(), QStringLiteral("-12,000"));
+    }
+
+    void groupsThousands() {
+        Backend calculator;
+        press(calculator, "1 2 3 4");
+        QCOMPARE(calculator.display(), QStringLiteral("1,234"));
+
+        // The fraction is not grouped, and a trailing point stays visible.
+        press(calculator, ". 5 6 7 8");
+        QCOMPARE(calculator.display(), QStringLiteral("1,234.5678"));
+
+        press(calculator, "× 1 0 0 0 =");
+        QCOMPARE(calculator.display(), QStringLiteral("1,234,567.8"));
+        QCOMPARE(calculator.expression(), QStringLiteral("1,234.5678 × 1,000"));
+
+        // Chaining and editing after a result work from the plain value.
+        press(calculator, "+ 1 =");
+        QCOMPARE(calculator.display(), QStringLiteral("1,234,568.8"));
+        press(calculator, "backspace backspace");
+        QCOMPARE(calculator.display(), QStringLiteral("1,234,568"));
+
+        press(calculator, "clear 1 0 0 0 0 0 0 sign");
+        QCOMPARE(calculator.display(), QStringLiteral("-1,000,000"));
+    }
+
+    void copiesWithoutSeparators() {
+        Backend calculator;
+        press(calculator, "1 2 3 4 5 6 7 . 5");
+        calculator.copyResult();
+        QCOMPARE(QGuiApplication::clipboard()->text(), QStringLiteral("1234567.5"));
+    }
+
+    void groupsDigits() {
+        QCOMPARE(Backend::groupDigits(QStringLiteral("0")), QStringLiteral("0"));
+        QCOMPARE(Backend::groupDigits(QStringLiteral("999")), QStringLiteral("999"));
+        QCOMPARE(Backend::groupDigits(QStringLiteral("1000")), QStringLiteral("1,000"));
+        QCOMPARE(Backend::groupDigits(QStringLiteral("-100000")), QStringLiteral("-100,000"));
+        QCOMPARE(Backend::groupDigits(QStringLiteral("0.123456")), QStringLiteral("0.123456"));
+        QCOMPARE(Backend::groupDigits(QStringLiteral("1.5e+20")), QStringLiteral("1.5e+20"));
+        QCOMPARE(Backend::groupDigits(QStringLiteral("Error")), QStringLiteral("Error"));
     }
 
     void evaluatesTokens() {

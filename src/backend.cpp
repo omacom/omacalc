@@ -6,6 +6,7 @@
 #include <QFile>
 #include <QGuiApplication>
 #include <QLocale>
+#include <QRegularExpression>
 #include <QSettings>
 #include <QTextStream>
 #include <QVariantMap>
@@ -89,6 +90,12 @@ QString Backend::expression() const {
 }
 
 QString Backend::display() const {
+    return groupDigits(plainDisplay());
+}
+
+// The display without thousands separators, which is what copy hands to other
+// apps: a spreadsheet or terminal reads 1234567 more reliably than 1,234,567.
+QString Backend::plainDisplay() const {
     if (m_errored)
         return tr("Error");
     if (!m_entry.isEmpty())
@@ -104,8 +111,9 @@ QString Backend::prettyExpression(const QStringList &tokens) {
     QStringList pretty;
     pretty.reserve(tokens.size());
     for (const QString &token : tokens)
-        pretty << (isOperator(token) ? token
-                                     : formatNumber(QLocale::c().toDouble(token)));
+        pretty << (isOperator(token)
+                       ? token
+                       : groupDigits(formatNumber(QLocale::c().toDouble(token))));
     return pretty.join(QLatin1Char(' '));
 }
 
@@ -444,14 +452,33 @@ QString Backend::formatNumber(double value) {
     return QString::number(value, 'g', 15);
 }
 
+// Separates the whole-number digits into groups of three with commas, so
+// 1234567.891 reads as 1,234,567.891. Only presentation goes through here:
+// tokens, entries, and results stay plain so parsing and chaining never see a
+// separator. The fraction and any exponent are left alone, and text that is
+// not a number, like "Error", passes through unchanged.
+QString Backend::groupDigits(const QString &number) {
+    const int start = number.startsWith(QLatin1Char('-')) ? 1 : 0;
+    int end = start;
+    while (end < number.size() && number.at(end).isDigit())
+        ++end;
+    if (end - start <= 3)
+        return number;
+
+    QString grouped = number;
+    for (int i = end - 3; i > start; i -= 3)
+        grouped.insert(i, QLatin1Char(','));
+    return grouped;
+}
+
 void Backend::copyResult() const {
     if (QClipboard *clipboard = QGuiApplication::clipboard())
-        clipboard->setText(display());
+        clipboard->setText(plainDisplay());
 }
 
 // Paste replaces the current entry when the clipboard holds a number,
-// tolerating surrounding whitespace, a decimal comma, and the typographic
-// minus this calculator itself puts in expressions.
+// tolerating surrounding whitespace, thousands separators, a decimal comma,
+// and the typographic minus this calculator itself puts in expressions.
 void Backend::pasteNumber() {
     const QClipboard *clipboard = QGuiApplication::clipboard();
     if (!clipboard)
@@ -460,6 +487,14 @@ void Backend::pasteNumber() {
     QString text = clipboard->text().trimmed();
     text.replace(minusSign, QStringLiteral("-"));
     text.remove(QLatin1Char(' '));
+
+    // Commas in groups of exactly three digits are thousands separators, the
+    // way this calculator shows them. A short tail like "1,5" does not match
+    // and still reads as a decimal comma below.
+    static const QRegularExpression grouped(
+        QStringLiteral("^-?\\d{1,3}(,\\d{3})+(\\.\\d*)?$"));
+    if (grouped.match(text).hasMatch())
+        text.remove(QLatin1Char(','));
 
     bool ok = false;
     double value = QLocale::c().toDouble(text, &ok);
