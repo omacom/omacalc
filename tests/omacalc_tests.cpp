@@ -371,6 +371,8 @@ private slots:
             }
             return zombies;
         };
+        QVERIFY(QFile::exists(QStringLiteral("/proc/self/task/%1/children")
+                                  .arg(QCoreApplication::applicationPid())));
         const int zombiesBefore = zombieChildren();
 
         Backend calculator;
@@ -384,8 +386,7 @@ private slots:
             QFile logFile(logPath);
             return logFile.open(QIODevice::ReadOnly) && logFile.readAll() == "7\n";
         }(), 5000);
-        QTest::qWait(100);
-        QCOMPARE(zombieChildren(), zombiesBefore);
+        QTRY_COMPARE_WITH_TIMEOUT(zombieChildren(), zombiesBefore, 2000);
     }
 
     void pastesNumbers() {
