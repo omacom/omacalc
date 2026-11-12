@@ -453,9 +453,12 @@ void Backend::memoryAdd() {
         ok = std::isfinite(m_resultValue);
     if (!ok || !std::isfinite(value))
         return;
+    // An overflowed total could never be recalled, only cleared.
     QSettings settings;
-    settings.setValue(QStringLiteral("memory"),
-                      settings.value(QStringLiteral("memory"), 0).toDouble() + value);
+    const double total = settings.value(QStringLiteral("memory"), 0).toDouble() + value;
+    if (!std::isfinite(total))
+        return;
+    settings.setValue(QStringLiteral("memory"), total);
 }
 
 void Backend::memoryRecall() {

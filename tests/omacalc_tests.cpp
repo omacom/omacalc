@@ -308,6 +308,13 @@ private slots:
         again.memoryClear();
         again.memoryRecall();
         QCOMPARE(again.display(), QStringLiteral("0"));
+
+        press(again, "clear 1 0 ^ 3 0 8 =");
+        again.memoryAdd();
+        again.memoryAdd();
+        press(again, "clear");
+        again.memoryRecall();
+        QCOMPARE(again.display(), QStringLiteral("1e+308"));
     }
 
     void evaluatesTokens() {
