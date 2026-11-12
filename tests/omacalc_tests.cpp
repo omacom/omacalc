@@ -289,6 +289,39 @@ private slots:
         clipboard->setText(QStringLiteral("not a number"));
         calculator.pasteNumber();
         QCOMPARE(calculator.display(), QStringLiteral("1.5"));
+
+        clipboard->setText(QStringLiteral("42 × 3 + 7"));
+        calculator.pasteNumber();
+        QCOMPARE(calculator.display(), QStringLiteral("7"));
+        QCOMPARE(calculator.expression(), QStringLiteral("42 × 3 +"));
+        press(calculator, "=");
+        QCOMPARE(calculator.display(), QStringLiteral("133"));
+
+        clipboard->setText(QStringLiteral("2 * 3 ^ 2"));
+        calculator.pasteNumber();
+        press(calculator, "=");
+        QCOMPARE(calculator.display(), QStringLiteral("18"));
+
+        // A lone number still only replaces the entry.
+        press(calculator, "clear 5 +");
+        clipboard->setText(QStringLiteral("3"));
+        calculator.pasteNumber();
+        press(calculator, "=");
+        QCOMPARE(calculator.display(), QStringLiteral("8"));
+
+        // What Copy writes comes back, and numbers read as they did alone.
+        clipboard->setText(QStringLiteral("1e-05"));
+        calculator.pasteNumber();
+        QCOMPARE(calculator.display(), QStringLiteral("1e-05"));
+
+        clipboard->setText(QStringLiteral("1e+20 × 2 + 1,000"));
+        calculator.pasteNumber();
+        QCOMPARE(calculator.expression(), QStringLiteral("1e+20 × 2 +"));
+        QCOMPARE(calculator.display(), QStringLiteral("1000"));
+
+        clipboard->setText(QStringLiteral("+5"));
+        calculator.pasteNumber();
+        QCOMPARE(calculator.display(), QStringLiteral("5"));
     }
 
     void evaluatesTokens() {
