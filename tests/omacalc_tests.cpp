@@ -382,9 +382,9 @@ private slots:
 
     void groupsThousandsOnTheDisplay() {
         Backend calculator;
-        press(calculator, "5 0 0 * 4 =");
+        press(calculator, "1 0 0 0 * 2 =");
         QCOMPARE(calculator.display(), QStringLiteral("2,000"));
-        QCOMPARE(calculator.expression(), QStringLiteral("500 × 4"));
+        QCOMPARE(calculator.expression(), QStringLiteral("1000 × 2"));
         calculator.copyResult();
         QCOMPARE(QGuiApplication::clipboard()->text(), QStringLiteral("2000"));
 
