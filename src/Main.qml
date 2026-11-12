@@ -92,6 +92,10 @@ ApplicationWindow {
                 backend.pressKey("clear");
             } else if (event.text === "x" || event.text === "X") {
                 backend.pressKey("*");
+            } else if (event.key === Qt.Key_Dead_Circumflex) {
+                // US-international and ABNT2 make ^ a dead key. It arrives
+                // with no text and is never composed here, so read it as ^.
+                backend.pressKey("^");
             } else if (/^[0-9+\-*/%^]$/.test(event.text)) {
                 backend.pressKey(event.text);
             } else {

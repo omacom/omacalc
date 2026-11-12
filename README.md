@@ -25,7 +25,8 @@ while with `×`, `÷`, or `^` — or on its own — it simply divides by 100.
 Everything works from the keyboard too:
 
 - `0-9`, `.`, `+`, `-`, `*` or `x`, `/`, `^`, and `%` enter digits and operators.
-  The numpad enters digits whether or not NumLock is on.
+  The numpad enters digits whether or not NumLock is on, and a dead `^` key,
+  as on US-international or ABNT2 layouts, enters `^` in one press.
 - `Enter` or `=` calculates.
 - `Backspace` deletes the last digit.
 - `C` or `Escape` clears.
