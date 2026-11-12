@@ -16,7 +16,8 @@ precedence (`×` and `÷` before `+` and `−`), decimals, percent, sign toggle,
 and backspace. The expression builds up above the display and stays visible
 with the result after `=`, so `42 × 3 + 7` reads back exactly as it was entered.
 From the keyboard, `^` raises to a power ahead of everything else, so
-`2 × 3 ^ 2` gives `18`.
+`2 × 3 ^ 2` gives `18`. `(` and `)` group a part of the expression, so
+`(2 + 3) × 4` gives `20`.
 
 Percent follows the familiar calculator convention: with a pending `+` or `−`
 it takes that percentage of the running total (`200 + 10 % =` gives `220`),

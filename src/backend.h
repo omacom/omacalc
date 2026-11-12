@@ -52,6 +52,7 @@ private:
     void pressDigit(const QString &digit);
     void pressDecimal();
     void pressOperator(const QString &pretty);
+    void pressParen(bool open);
     void pressEquals();
     void pressPercent();
     void pressToggleSign();

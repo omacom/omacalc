@@ -92,6 +92,8 @@ ApplicationWindow {
                 backend.pressKey("clear");
             } else if (event.text === "x" || event.text === "X") {
                 backend.pressKey("*");
+            } else if (event.text === "(" || event.text === ")") {
+                backend.pressKey(event.text);
             } else if (/^[0-9+\-*/%^]$/.test(event.text)) {
                 backend.pressKey(event.text);
             } else {

@@ -307,6 +307,36 @@ private slots:
 
         Backend::evaluateTokens({"1", "÷", "0"}, &ok);
         QVERIFY(!ok);
+
+        QCOMPARE(Backend::evaluateTokens({"(", "2", "+", "3", ")", "×", "4"}, &ok), 20.0);
+        QVERIFY(ok);
+        QCOMPARE(Backend::evaluateTokens({"2", "^", "(", "1", "+", "2", ")"}, &ok), 8.0);
+        QVERIFY(ok);
+    }
+
+    void groupsWithParentheses() {
+        Backend calculator;
+        press(calculator, "( 2 + 3 ) * 4 =");
+        QCOMPARE(calculator.display(), QStringLiteral("20"));
+        QCOMPARE(calculator.expression(), QStringLiteral("( 2 + 3 ) × 4"));
+
+        // With no group open, ) leaves the number being typed alone.
+        press(calculator, "clear 2 + 3 ) 4 =");
+        QCOMPARE(calculator.display(), QStringLiteral("36"));
+
+        // Nothing but an operator follows a group.
+        press(calculator, "clear ( 2 + 3 ) 4 . sign %");
+        QGuiApplication::clipboard()->setText(QStringLiteral("4"));
+        calculator.pasteNumber();
+        press(calculator, "=");
+        QCOMPARE(calculator.display(), QStringLiteral("5"));
+
+        press(calculator, "clear 2 × ( - 3 ) =");
+        QCOMPARE(calculator.display(), QStringLiteral("-6"));
+
+        // Percent inside a group takes its share of the group's total.
+        press(calculator, "clear 5 0 + ( 2 0 0 + 1 0 % ) =");
+        QCOMPARE(calculator.display(), QStringLiteral("270"));
     }
 
     void opensAtTheDesignSizeForTheTextScale() {
