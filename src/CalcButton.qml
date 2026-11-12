@@ -16,15 +16,15 @@ Rectangle {
 
     Accessible.role: Accessible.Button
     Accessible.name: {
-        if (iconName === "backspace") return "Backspace";
-        if (label === "AC") return "All clear";
-        if (label === "±") return "Toggle sign";
-        if (label === "%") return "Percent";
-        if (label === "÷") return "Divide";
-        if (label === "×") return "Multiply";
-        if (label === "−") return "Subtract";
-        if (label === "+") return "Add";
-        if (label === "=") return "Equals";
+        if (iconName === "backspace") return qsTr("Backspace");
+        if (label === "AC") return qsTr("All clear");
+        if (label === "±") return qsTr("Toggle sign");
+        if (label === "%") return qsTr("Percent");
+        if (label === "÷") return qsTr("Divide");
+        if (label === "×") return qsTr("Multiply");
+        if (label === "−") return qsTr("Subtract");
+        if (label === "+") return qsTr("Add");
+        if (label === "=") return qsTr("Equals");
         return label;
     }
     Accessible.onPressAction: activated()

@@ -12,6 +12,7 @@
 
 #include "backend.h"
 #include "systemtheme.h"
+#include "translator.h"
 
 int main(int argc, char *argv[]) {
     QGuiApplication app(argc, argv);
@@ -25,6 +26,11 @@ int main(int argc, char *argv[]) {
     app.setOrganizationDomain(QStringLiteral("omacom.io"));
 
     QQuickStyle::setStyle(QStringLiteral("Material"));
+
+    // Installed before anything is translated, and every qsTr() binding is
+    // re-evaluated when the Omarchy language changes.
+    Translator translator;
+    app.installTranslator(&translator);
 
     Backend backend(&app);
     SystemTheme systemTheme(&app);
@@ -53,6 +59,9 @@ int main(int argc, char *argv[]) {
     });
 
     QQmlApplicationEngine engine;
+    QObject::connect(&translator, &Translator::changed, &engine, &QQmlEngine::retranslate);
+    // The display is C++ text ("Error"), which retranslate() doesn't reach.
+    QObject::connect(&translator, &Translator::changed, &backend, &Backend::calculationChanged);
     QObject::connect(&engine, &QQmlApplicationEngine::warnings, &app,
                      [](const QList<QQmlError> &warnings) {
         for (const QQmlError &warning : warnings)
