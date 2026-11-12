@@ -444,6 +444,37 @@ QString Backend::formatNumber(double value) {
     return QString::number(value, 'g', 15);
 }
 
+void Backend::memoryAdd() {
+    bool ok = false;
+    const double value = m_justEvaluated
+        ? m_resultValue
+        : QLocale::c().toDouble(currentValue(), &ok);
+    if (m_justEvaluated)
+        ok = std::isfinite(m_resultValue);
+    if (!ok || !std::isfinite(value))
+        return;
+    // An overflowed total could never be recalled, only cleared.
+    QSettings settings;
+    const double total = settings.value(QStringLiteral("memory"), 0).toDouble() + value;
+    if (!std::isfinite(total))
+        return;
+    settings.setValue(QStringLiteral("memory"), total);
+}
+
+void Backend::memoryRecall() {
+    const double value = QSettings().value(QStringLiteral("memory"), 0).toDouble();
+    if (!std::isfinite(value))
+        return;
+    if (m_errored || m_justEvaluated)
+        pressClear();
+    m_entry = formatNumber(value);
+    emit calculationChanged();
+}
+
+void Backend::memoryClear() {
+    QSettings().setValue(QStringLiteral("memory"), 0);
+}
+
 void Backend::copyResult() const {
     if (QClipboard *clipboard = QGuiApplication::clipboard())
         clipboard->setText(display());
