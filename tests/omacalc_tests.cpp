@@ -387,6 +387,11 @@ private slots:
         QCOMPARE(calculator.expression(), QStringLiteral("500 × 4"));
         calculator.copyResult();
         QCOMPARE(QGuiApplication::clipboard()->text(), QStringLiteral("2000"));
+
+        // An error copies what it shows, not the zero the calculator reset to.
+        press(calculator, "1 ÷ 0 =");
+        calculator.copyResult();
+        QCOMPARE(QGuiApplication::clipboard()->text(), calculator.display());
     }
 
     void everyCatalogParses() {

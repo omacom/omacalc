@@ -468,11 +468,8 @@ QString Backend::formatNumber(double value) {
 }
 
 void Backend::copyResult() const {
-    if (QClipboard *clipboard = QGuiApplication::clipboard()) {
-        const QString plain = m_justEvaluated ? m_result
-            : (!m_entry.isEmpty() ? m_entry : formatNumber(QLocale::c().toDouble(currentValue())));
-        clipboard->setText(plain);
-    }
+    if (QClipboard *clipboard = QGuiApplication::clipboard())
+        clipboard->setText(display().remove(QLatin1Char(',')));
 }
 
 // Paste replaces the current entry when the clipboard holds a number,
