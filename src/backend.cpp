@@ -462,7 +462,7 @@ void Backend::recallPrevious() {
     --m_recallIndex;
     // Loaded as if just typed, so the last number is the entry and can be edited.
     m_tokens = m_history.at(m_recallIndex);
-    m_entry = formatNumber(QLocale::c().toDouble(m_tokens.takeLast()));
+    m_entry = m_tokens.takeLast();
     m_errored = false;
     clearEvaluation();
     emit calculationChanged();
@@ -497,6 +497,7 @@ void Backend::pasteNumber() {
     if (m_errored || m_justEvaluated)
         pressClear();
     m_entry = formatNumber(value);
+    m_recallIndex = -1;
     emit calculationChanged();
 }
 
