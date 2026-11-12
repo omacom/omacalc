@@ -231,9 +231,9 @@ void Backend::pressOperator(const QString &pretty) {
 void Backend::pressSqrt() {
     if (m_errored)
         return;
-    const QString shown = m_justEvaluated ? m_result : currentValue();
-    bool ok = false;
-    const double value = QLocale::c().toDouble(shown, &ok);
+    bool ok = true;
+    const double value = m_justEvaluated ? m_resultValue
+                                         : QLocale::c().toDouble(currentValue(), &ok);
     if (!ok || value < 0) {
         m_errored = true;
         m_tokens.clear();
@@ -245,7 +245,7 @@ void Backend::pressSqrt() {
     if (m_justEvaluated) {
         m_tokens.clear();
         m_entry = result;
-        m_justEvaluated = false;
+        clearEvaluation();
         return;
     }
     if (!m_entry.isEmpty() || m_tokens.isEmpty() || isOperator(m_tokens.last()))

@@ -153,6 +153,11 @@ private slots:
         QCOMPARE(calculator.display(), QStringLiteral("5"));
         press(calculator, "clear 4 sign sqrt");
         QCOMPARE(calculator.display(), QStringLiteral("Error"));
+
+        press(calculator, "clear 4 ÷ 9 = sqrt");
+        QCOMPARE(calculator.display(), QStringLiteral("0.666666666666667"));
+        press(calculator, "sign sqrt");
+        QCOMPARE(calculator.expression(), QString());
     }
 
     void percentAndSign() {
