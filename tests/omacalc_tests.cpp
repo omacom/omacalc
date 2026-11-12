@@ -291,6 +291,33 @@ private slots:
         QCOMPARE(calculator.display(), QStringLiteral("1.5"));
     }
 
+    void recallsEarlierExpressions() {
+        Backend calculator;
+        press(calculator, "2 + 3 =");
+        QCOMPARE(calculator.display(), QStringLiteral("5"));
+        press(calculator, "recall");
+        QCOMPARE(calculator.expression(), QStringLiteral("2 +"));
+        QCOMPARE(calculator.display(), QStringLiteral("3"));
+        press(calculator, "=");
+        QCOMPARE(calculator.display(), QStringLiteral("5"));
+        press(calculator, "recall backspace 4 =");
+        QCOMPARE(calculator.display(), QStringLiteral("6"));
+        press(calculator, "2 + 0 . 0 0 0 0 0 1 = recall 5 =");
+        QCOMPARE(calculator.display(), QStringLiteral("2.0000015"));
+
+        press(calculator, "9 * 9 =");
+        press(calculator, "recall");
+        QCOMPARE(calculator.expression(), QStringLiteral("9 ×"));
+        press(calculator, "recall");
+        QCOMPARE(calculator.expression(), QStringLiteral("2 +"));
+
+        // A paste is an edit, so the next Up starts again from the newest.
+        QGuiApplication::clipboard()->setText(QStringLiteral("7"));
+        calculator.pasteNumber();
+        press(calculator, "recall");
+        QCOMPARE(calculator.expression(), QStringLiteral("9 ×"));
+    }
+
     void evaluatesTokens() {
         bool ok = false;
         QCOMPARE(Backend::evaluateTokens({"2", "+", "3", "×", "4"}, &ok), 14.0);
