@@ -2,6 +2,8 @@
 #include <QClipboard>
 #include <QElapsedTimer>
 #include <QGuiApplication>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QRect>
 #include <QSettings>
 #include <QVariant>
@@ -9,6 +11,7 @@
 
 #include "backend.h"
 #include "systemtheme.h"
+#include "translator.h"
 
 namespace {
 void press(Backend &calculator, const QString &keys) {
@@ -330,6 +333,43 @@ private slots:
         QVERIFY(timer.elapsed() < 2000);
         QVERIFY(theme.textScale() >= 0.5);
         QVERIFY(theme.textScale() <= 3.0);
+    }
+
+    void everyCatalogParses() {
+        // A broken catalog loads as nothing, which shows English rather than failing.
+        const QString catalogs = QFINDTESTDATA("../src/i18n");
+        QVERIFY(!catalogs.isEmpty());
+        const QStringList files = QDir(catalogs).entryList({QStringLiteral("*.json")});
+        QVERIFY(!files.isEmpty());
+        for (const QString &name : files) {
+            QFile file(catalogs + QLatin1Char('/') + name);
+            QVERIFY(file.open(QIODevice::ReadOnly));
+            QJsonParseError error;
+            const QJsonDocument catalog = QJsonDocument::fromJson(file.readAll(), &error);
+            QVERIFY2(error.error == QJsonParseError::NoError && catalog.isObject(),
+                     qPrintable(name + QStringLiteral(": ") + error.errorString()));
+            for (const QJsonValue &value : catalog.object())
+                QVERIFY2(value.isString() && !value.toString().isEmpty(), qPrintable(name));
+        }
+    }
+
+    void showsErrorInTheOmarchyLanguage() {
+        QTemporaryDir directory;
+        QFile language(directory.filePath(QStringLiteral("language")));
+        QVERIFY(language.open(QIODevice::WriteOnly));
+        language.write("da\n");
+        language.close();
+
+        Translator translator(language.fileName(), QFINDTESTDATA("../src/i18n"));
+        QCoreApplication::installTranslator(&translator);
+        Backend calculator;
+        press(calculator, "1 ÷ 0 =");
+        const QString display = calculator.display();
+        QCoreApplication::removeTranslator(&translator);
+        QGuiApplication::setLayoutDirection(Qt::LeftToRight);
+        QLocale::setDefault(QLocale::c());
+
+        QCOMPARE(display, QStringLiteral("Fejl"));
     }
 
     void formatsNumbers() {
