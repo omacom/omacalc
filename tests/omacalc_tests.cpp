@@ -296,16 +296,18 @@ private slots:
         press(calculator, "2 + 3 =");
         QCOMPARE(calculator.display(), QStringLiteral("5"));
         press(calculator, "recall");
-        QCOMPARE(calculator.expression(), QStringLiteral("2 + 3"));
+        QCOMPARE(calculator.expression(), QStringLiteral("2 +"));
         QCOMPARE(calculator.display(), QStringLiteral("3"));
         press(calculator, "=");
         QCOMPARE(calculator.display(), QStringLiteral("5"));
+        press(calculator, "recall backspace 4 =");
+        QCOMPARE(calculator.display(), QStringLiteral("6"));
 
         press(calculator, "9 * 9 =");
         press(calculator, "recall");
-        QCOMPARE(calculator.expression(), QStringLiteral("9 × 9"));
+        QCOMPARE(calculator.expression(), QStringLiteral("9 ×"));
         press(calculator, "recall");
-        QCOMPARE(calculator.expression(), QStringLiteral("2 + 3"));
+        QCOMPARE(calculator.expression(), QStringLiteral("2 +"));
     }
 
     void evaluatesTokens() {

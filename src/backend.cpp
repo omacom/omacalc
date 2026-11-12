@@ -460,8 +460,9 @@ void Backend::recallPrevious() {
     if (m_recallIndex == 0)
         return;
     --m_recallIndex;
+    // Loaded as if just typed, so the last number is the entry and can be edited.
     m_tokens = m_history.at(m_recallIndex);
-    m_entry.clear();
+    m_entry = formatNumber(QLocale::c().toDouble(m_tokens.takeLast()));
     m_errored = false;
     clearEvaluation();
     emit calculationChanged();
