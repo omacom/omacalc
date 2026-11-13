@@ -202,6 +202,42 @@ private slots:
         QCOMPARE(calculator.display(), QStringLiteral("0"));
     }
 
+    void backspaceCorrectsPendingOperators() {
+        Backend calculator;
+        press(calculator, "4 2 + backspace");
+        QCOMPARE(calculator.display(), QStringLiteral("42"));
+        QCOMPARE(calculator.expression(), QString());
+        press(calculator, "backspace 3 × 2 =");
+        QCOMPARE(calculator.display(), QStringLiteral("86"));
+
+        press(calculator, "clear 2 + 3 × backspace");
+        QCOMPARE(calculator.display(), QStringLiteral("3"));
+        QCOMPARE(calculator.expression(), QStringLiteral("2 +"));
+        press(calculator, "4 =");
+        QCOMPARE(calculator.display(), QStringLiteral("36"));
+
+        press(calculator, "clear 8 sign ÷ backspace");
+        QCOMPARE(calculator.display(), QStringLiteral("-8"));
+        press(calculator, "backspace");
+        QCOMPARE(calculator.display(), QStringLiteral("0"));
+
+        press(calculator, "clear 1 ÷ 3 = × backspace");
+        QCOMPARE(calculator.display(), QStringLiteral("0.333333333333333"));
+    }
+
+    void backspaceRestoresTypedDecimal() {
+        Backend calculator;
+        press(calculator, "1 . 2 0 + backspace");
+        QCOMPARE(calculator.display(), QStringLiteral("1.20"));
+        press(calculator, "backspace 3 =");
+        QCOMPARE(calculator.display(), QStringLiteral("1.23"));
+
+        press(calculator, "clear 1 ÷ 3 = + 2 . 0 × backspace");
+        QCOMPARE(calculator.display(), QStringLiteral("2.0"));
+        press(calculator, "backspace backspace backspace backspace");
+        QCOMPARE(calculator.display(), QStringLiteral("0.333333333333333"));
+    }
+
     void treatsExponentFormAsAWholeValue() {
         Backend calculator;
 

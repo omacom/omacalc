@@ -219,6 +219,7 @@ void Backend::pressOperator(const QString &pretty) {
         // 1 ÷ 3 = × 3 comes back as 1. Seventeen significant digits round-trip
         // any double; the expression line re-rounds them for presentation.
         m_tokens = QStringList(QString::number(m_resultValue, 'g', 17));
+        m_hasChainedOperand = true;
         clearEvaluation();
     }
 
@@ -257,6 +258,7 @@ void Backend::pressEquals() {
         m_justEvaluated = true;
     }
     m_tokens.clear();
+    m_hasChainedOperand = false;
     m_entry.clear();
 }
 
@@ -335,6 +337,18 @@ void Backend::pressBackspace() {
         return;
     }
 
+    // Undo an operator before deleting digits: 42 + Backspace restores 42
+    // as the editable entry. Earlier terms stay in the expression.
+    if (m_entry.isEmpty() && !m_tokens.isEmpty() && isOperator(m_tokens.last())) {
+        m_tokens.removeLast();
+        m_entry = m_tokens.takeLast();
+        if (m_tokens.isEmpty() && m_hasChainedOperand) {
+            m_entry = formatNumber(QLocale::c().toDouble(m_entry));
+            m_hasChainedOperand = false;
+        }
+        return;
+    }
+
     m_entry.chop(1);
     if (m_entry == QStringLiteral("-"))
         m_entry.clear();
@@ -342,6 +356,7 @@ void Backend::pressBackspace() {
 
 void Backend::pressClear() {
     m_tokens.clear();
+    m_hasChainedOperand = false;
     m_entry.clear();
     clearEvaluation();
     m_errored = false;

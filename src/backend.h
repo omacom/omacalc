@@ -69,6 +69,7 @@ private:
     void discardSavedWindowGeometry();
 
     QStringList m_tokens;
+    bool m_hasChainedOperand = false;
     QString m_entry;
     QString m_result;
     double m_resultValue = 0;
