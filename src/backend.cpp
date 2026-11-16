@@ -99,6 +99,8 @@ private:
             ++m_position;
             const double operand = product();
             total = adding ? total + operand : total - operand;
+            if (!std::isfinite(total))
+                return fail();
         }
         return total;
     }
@@ -109,7 +111,13 @@ private:
             const bool multiplying = at(multiplySign);
             ++m_position;
             const double operand = power();
+            // Fail here rather than at the end: a later step like ^ 0 would
+            // otherwise turn the infinity back into an ordinary number.
+            if (!multiplying && operand == 0)
+                return fail();
             total = multiplying ? total * operand : total / operand;
+            if (!std::isfinite(total))
+                return fail();
         }
         return total;
     }
@@ -242,6 +250,14 @@ QString Backend::prettyExpression(const QStringList &tokens) {
 QString Backend::currentValue() const {
     if (!m_entry.isEmpty())
         return sealNumber(m_entry);
+    // After ")" the calculator is at the group's value, not its last number.
+    const int group = closedGroupStart();
+    if (group >= 0) {
+        bool ok = false;
+        const double value = evaluateTokens(m_tokens.mid(group), &ok);
+        if (ok)
+            return QString::number(value, 'g', 17);
+    }
     for (int i = m_tokens.size() - 1; i >= 0; --i) {
         if (!isOperator(m_tokens.at(i)) && !isParenthesis(m_tokens.at(i)))
             return m_tokens.at(i);
@@ -416,17 +432,30 @@ void Backend::pressPercent() {
     if (m_justEvaluated) {
         const double percent = m_resultValue / 100.0;
         clearEvaluation();
-        m_entry = formatNumber(percent);
+        m_entry = QString::number(percent, 'g', 17);
+        m_entryComputed = true;
         return;
     }
 
-    if (m_entry.isEmpty() && !m_tokens.isEmpty() && isParenthesis(m_tokens.last()))
+    if (m_entry.isEmpty() && !m_tokens.isEmpty() && m_tokens.last() == openParenthesis)
         return;
 
-    bool ok = false;
-    const double value = QLocale::c().toDouble(currentValue(), &ok);
-    if (!ok)
-        return;
+    // A closed group is a single value: (2 + 3) % is 0.05.
+    double value = 0;
+    if (m_entry.isEmpty() && closedGroupStart() >= 0) {
+        QString shown;
+        if (!takeClosedGroup(&value, &shown)) {
+            m_evaluatedExpression = prettyExpression(m_tokens) + QStringLiteral(" %");
+            m_errored = true;
+            m_tokens.clear();
+            return;
+        }
+    } else {
+        bool ok = false;
+        value = QLocale::c().toDouble(currentValue(), &ok);
+        if (!ok)
+            return;
+    }
 
     double percent = value / 100.0;
     if (!m_tokens.isEmpty() && (m_tokens.last() == plusSign || m_tokens.last() == minusSign)) {
@@ -444,15 +473,16 @@ void Backend::pressPercent() {
         }
     }
     if (!std::isfinite(percent)) {
-        m_evaluatedExpression = prettyExpression(m_tokens + QStringList(currentValue()))
+        m_evaluatedExpression = prettyExpression(m_tokens + QStringList(QString::number(value, 'g', 17)))
             + QStringLiteral(" %");
         m_errored = true;
         m_tokens.clear();
         m_entry.clear();
         return;
     }
-    m_entry = formatNumber(percent);
-    m_entryComputed = false;
+    // Keep every digit for the next step; the display rounds it.
+    m_entry = QString::number(percent, 'g', 17);
+    m_entryComputed = true;
 }
 
 void Backend::pressToggleSign() {
@@ -463,6 +493,20 @@ void Backend::pressToggleSign() {
 
     // With nothing typed yet, start a fresh negative operand instead of
     // dredging up the previous one: 4 + ± 2 enters -2, not -42.
+    // After ")" the sign belongs to the whole group: (2 + 3) ± is -5.
+    if (m_entry.isEmpty() && closedGroupStart() >= 0) {
+        double value = 0;
+        QString shown;
+        if (!takeClosedGroup(&value, &shown)) {
+            m_evaluatedExpression = prettyExpression(m_tokens) + QStringLiteral(" ±");
+            m_errored = true;
+            m_tokens.clear();
+            return;
+        }
+        m_entry = QString::number(-value, 'g', 17);
+        m_entryComputed = true;
+        return;
+    }
     if (m_entry.isEmpty()) {
         m_entry = QStringLiteral("-0");
         return;
@@ -554,6 +598,37 @@ int Backend::currentGroupStart() const {
     return 0;
 }
 
+// Index of the "(" matching a trailing ")", or -1 when the tokens do not end
+// in a closed group.
+int Backend::closedGroupStart() const {
+    if (m_tokens.isEmpty() || m_tokens.last() != closeParenthesis)
+        return -1;
+    int depth = 0;
+    for (int i = m_tokens.size() - 1; i >= 0; --i) {
+        if (m_tokens.at(i) == closeParenthesis)
+            ++depth;
+        else if (m_tokens.at(i) == openParenthesis && --depth == 0)
+            return i;
+    }
+    return -1;
+}
+
+// Evaluates the trailing closed group into *value and, when it is valid,
+// removes it from the tokens so the caller can replace it with an entry.
+// *shown is the group as the expression line reads it, for error messages.
+bool Backend::takeClosedGroup(double *value, QString *shown) {
+    const int start = closedGroupStart();
+    if (start < 0)
+        return false;
+    const QStringList group = m_tokens.mid(start);
+    bool ok = false;
+    *value = evaluateTokens(group, &ok);
+    *shown = prettyExpression(group);
+    if (ok)
+        m_tokens = m_tokens.mid(0, start);
+    return ok;
+}
+
 // A number already typed, or a closed group, multiplies what the parenthesis
 // opens: 2 ( 3 + 4 ) is 2 × (3 + 4).
 void Backend::pressOpenParenthesis() {
@@ -601,23 +676,8 @@ void Backend::pressFunction(const QString &function) {
         value = m_resultValue;
         shown = m_result;
         clearEvaluation();
-    } else if (m_entry.isEmpty() && !m_tokens.isEmpty()
-               && m_tokens.last() == closeParenthesis) {
-        int depth = 0;
-        int start = m_tokens.size() - 1;
-        for (; start >= 0; --start) {
-            if (m_tokens.at(start) == closeParenthesis)
-                ++depth;
-            else if (m_tokens.at(start) == openParenthesis && --depth == 0)
-                break;
-        }
-        const QStringList group = m_tokens.mid(start);
-        bool groupOk = false;
-        value = evaluateTokens(group, &groupOk);
-        shown = prettyExpression(group);
-        if (groupOk)
-            m_tokens = m_tokens.mid(0, start);
-        else
+    } else if (m_entry.isEmpty() && closedGroupStart() >= 0) {
+        if (!takeClosedGroup(&value, &shown))
             value = qQNaN();
     } else {
         shown = currentValue();

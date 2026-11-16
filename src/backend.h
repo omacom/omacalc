@@ -74,6 +74,8 @@ private:
     void pushEntry();
     int openParentheses() const;
     int currentGroupStart() const;
+    int closedGroupStart() const;
+    bool takeClosedGroup(double *value, QString *shown);
 
     QString plainDisplay() const;
     QString currentValue() const;

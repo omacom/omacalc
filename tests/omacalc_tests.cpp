@@ -143,6 +143,10 @@ private slots:
         // After equals, percent picks up from the result.
         press(calculator, "clear 4 0 + 1 0 = %");
         QCOMPARE(calculator.display(), QStringLiteral("0.5"));
+
+        // Percent keeps every digit of a constant for the next step.
+        press(calculator, "clear pi % − pi ÷ 1 0 0 =");
+        QCOMPARE(calculator.display(), QStringLiteral("0"));
     }
 
     void percentAndSign() {
@@ -398,6 +402,24 @@ private slots:
         // Percent takes the running total inside the group.
         press(calculator, "clear 1 0 0 0 + ( 2 0 0 + 1 0 % ) =");
         QCOMPARE(calculator.display(), QStringLiteral("1,220"));
+
+        // A closed group shows, negates, and takes a percent as one value.
+        press(calculator, "clear ( 2 + 3 )");
+        QCOMPARE(calculator.display(), QStringLiteral("5"));
+        press(calculator, "sign");
+        QCOMPARE(calculator.display(), QStringLiteral("-5"));
+        press(calculator, "=");
+        QCOMPARE(calculator.display(), QStringLiteral("-5"));
+        press(calculator, "clear ( 2 + 3 ) %");
+        QCOMPARE(calculator.display(), QStringLiteral("0.05"));
+        press(calculator, "clear 2 × ( 2 + 3 ) sign =");
+        QCOMPARE(calculator.display(), QStringLiteral("-10"));
+
+        // Division by zero inside a group cannot be hidden by a later power.
+        press(calculator, "clear ( 1 ÷ 0 ) ^ 0 =");
+        QCOMPARE(calculator.display(), QStringLiteral("Error"));
+        press(calculator, "clear 1 ÷ 0 × 0 =");
+        QCOMPARE(calculator.display(), QStringLiteral("Error"));
 
         // Backspace takes back a parenthesis, and the number before it.
         press(calculator, "clear 2 × ( 3 ) backspace");
