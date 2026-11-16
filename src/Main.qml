@@ -7,7 +7,7 @@ ApplicationWindow {
     id: win
     width: 400
     height: 568
-    minimumWidth: 300
+    minimumWidth: backend.scientific ? 600 : 300
     minimumHeight: 430
     visible: false
     title: qsTr("Calculator")
@@ -19,7 +19,17 @@ ApplicationWindow {
     // design size; resizing the window scales the whole face with it. The
     // launch size below already includes the desktop text scale. A scale
     // change while the window is open waits until the next launch.
-    readonly property real uiScale: Math.min(width / 400, height / 568)
+    // Scientific mode adds four key columns, doubling the design width.
+    readonly property int designWidth: backend.scientific ? 800 : 400
+    readonly property real uiScale: Math.min(width / designWidth, height / 568)
+
+    // Grow or shrink sideways by the four columns, keeping the scale the face
+    // is drawn at. A tiled window keeps its size and the keys narrow instead.
+    function toggleScientific() {
+        var scale = uiScale;
+        backend.scientific = !backend.scientific;
+        width = Math.max(minimumWidth, Math.round(designWidth * scale));
+    }
 
     function mixColors(base, tint, amount) {
         return Qt.rgba(
@@ -92,7 +102,7 @@ ApplicationWindow {
                 backend.pressKey("clear");
             } else if (event.text === "x" || event.text === "X") {
                 backend.pressKey("*");
-            } else if (/^[0-9+\-*/%^]$/.test(event.text)) {
+            } else if (/^[0-9+\-*/%^()]$/.test(event.text)) {
                 backend.pressKey(event.text);
             } else {
                 return;
@@ -110,10 +120,45 @@ ApplicationWindow {
             anchors.rightMargin: win.scaledSize(8)
             anchors.bottomMargin: win.scaledSize(24)
 
+            Rectangle {
+                id: scientificToggle
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.leftMargin: -win.scaledSize(8)
+                width: win.scaledSize(44)
+                height: win.scaledSize(30)
+                radius: height / 2
+                color: backend.scientific
+                    ? win.mixColors(win.pageColor, win.inkColor, toggleArea.containsMouse ? 0.24 : 0.16)
+                    : win.mixColors(win.pageColor, win.inkColor, toggleArea.containsMouse ? 0.08 : 0)
+
+                Accessible.role: Accessible.CheckBox
+                Accessible.name: qsTr("Scientific")
+                Accessible.checkable: true
+                Accessible.checked: backend.scientific
+                Accessible.onPressAction: win.toggleScientific()
+
+                Text {
+                    anchors.centerIn: parent
+                    text: "fx"
+                    color: backend.scientific ? win.inkColor : win.mutedColor
+                    font.family: "iA Writer Mono S"
+                    font.pixelSize: win.scaledSize(17)
+                }
+
+                MouseArea {
+                    id: toggleArea
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    onClicked: win.toggleScientific()
+                }
+            }
+
             Text {
                 id: expressionText
                 anchors.top: parent.top
-                anchors.left: parent.left
+                anchors.left: scientificToggle.right
+                anchors.leftMargin: win.scaledSize(12)
                 anchors.right: parent.right
                 text: backend.expression
                 color: win.mutedColor
@@ -153,46 +198,84 @@ ApplicationWindow {
             anchors.right: parent.right
             anchors.bottom: parent.bottom
             height: Math.round(parent.height * 0.68)
-            columns: 4
+            columns: backend.scientific ? 8 : 4
             rowSpacing: win.scaledSize(12)
             columnSpacing: win.scaledSize(12)
 
             Repeater {
-                model: [
-                    { label: "AC", key: "clear", kind: "number" },
-                    { label: "±", key: "sign", kind: "number" },
-                    { label: "%", key: "%", kind: "number" },
-                    { label: "÷", key: "÷", kind: "operator" },
-                    { label: "7", key: "7", kind: "number" },
-                    { label: "8", key: "8", kind: "number" },
-                    { label: "9", key: "9", kind: "number" },
-                    { label: "×", key: "×", kind: "operator" },
-                    { label: "4", key: "4", kind: "number" },
-                    { label: "5", key: "5", kind: "number" },
-                    { label: "6", key: "6", kind: "number" },
-                    { label: "−", key: "-", kind: "operator" },
-                    { label: "1", key: "1", kind: "number" },
-                    { label: "2", key: "2", kind: "number" },
-                    { label: "3", key: "3", kind: "number" },
-                    { label: "+", key: "+", kind: "operator" },
-                    { label: "0", key: "0", kind: "number" },
-                    { label: ".", key: ".", kind: "number" },
-                    { label: "", key: "backspace", kind: "number", icon: "backspace" },
-                    { label: "=", key: "=", kind: "equals" }
-                ]
+                // In scientific mode each row starts with four function keys.
+                model: {
+                    var basic = keypad.basicKeys;
+                    if (!backend.scientific)
+                        return basic;
+                    var keys = [];
+                    for (var row = 0; row < 5; ++row)
+                        keys = keys.concat(keypad.scientificKeys.slice(row * 4, row * 4 + 4),
+                                           basic.slice(row * 4, row * 4 + 4));
+                    return keys;
+                }
 
                 CalcButton {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    label: modelData.label
+                    Layout.preferredWidth: 1
+                    Layout.preferredHeight: 1
+                    label: modelData.key === "angle" ? (backend.degrees ? "deg" : "rad") : modelData.label
                     keyValue: modelData.key
                     kind: modelData.kind
+                    accessibleName: modelData.name === undefined ? "" : modelData.name
                     iconName: modelData.icon === undefined ? "" : modelData.icon
                     pageColor: win.pageColor
                     inkColor: win.inkColor
                     onActivated: backend.pressKey(keyValue)
                 }
             }
+
+            readonly property var scientificKeys: [
+                { label: "(", key: "(", kind: "function", name: qsTr("Open parenthesis") },
+                { label: ")", key: ")", kind: "function", name: qsTr("Close parenthesis") },
+                { label: "deg", key: "angle", kind: "function", name: qsTr("Degrees or radians") },
+                { label: "1/x", key: "reciprocal", kind: "function" },
+                { label: "sin", key: "sin", kind: "function" },
+                { label: "cos", key: "cos", kind: "function" },
+                { label: "tan", key: "tan", kind: "function" },
+                { label: "x²", key: "square", kind: "function" },
+                { label: "asin", key: "asin", kind: "function" },
+                { label: "acos", key: "acos", kind: "function" },
+                { label: "atan", key: "atan", kind: "function" },
+                { label: "x³", key: "cube", kind: "function" },
+                { label: "ln", key: "ln", kind: "function" },
+                { label: "log", key: "log", kind: "function" },
+                { label: "e^x", key: "exp", kind: "function" },
+                { label: "√", key: "sqrt", kind: "function", name: qsTr("Square root") },
+                { label: "π", key: "pi", kind: "function", name: "pi" },
+                { label: "e", key: "e", kind: "function" },
+                { label: "n!", key: "factorial", kind: "function", name: qsTr("Factorial") },
+                { label: "x^y", key: "^", kind: "function", name: qsTr("Power") }
+            ]
+
+            readonly property var basicKeys: [
+                { label: "AC", key: "clear", kind: "number" },
+                { label: "±", key: "sign", kind: "number" },
+                { label: "%", key: "%", kind: "number" },
+                { label: "÷", key: "÷", kind: "operator" },
+                { label: "7", key: "7", kind: "number" },
+                { label: "8", key: "8", kind: "number" },
+                { label: "9", key: "9", kind: "number" },
+                { label: "×", key: "×", kind: "operator" },
+                { label: "4", key: "4", kind: "number" },
+                { label: "5", key: "5", kind: "number" },
+                { label: "6", key: "6", kind: "number" },
+                { label: "−", key: "-", kind: "operator" },
+                { label: "1", key: "1", kind: "number" },
+                { label: "2", key: "2", kind: "number" },
+                { label: "3", key: "3", kind: "number" },
+                { label: "+", key: "+", kind: "operator" },
+                { label: "0", key: "0", kind: "number" },
+                { label: ".", key: ".", kind: "number" },
+                { label: "", key: "backspace", kind: "number", icon: "backspace" },
+                { label: "=", key: "=", kind: "equals" }
+            ]
         }
     }
 

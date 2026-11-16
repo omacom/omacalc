@@ -1,14 +1,16 @@
 import QtQuick
 
 // One keypad button. Numbers sit almost flush with the page, the operator
-// column lifts a step lighter, and equals inverts to the ink color.
+// column lifts a step lighter, and equals inverts to the ink color. Scientific
+// functions sit flush with no border, so the basic keypad still leads.
 Rectangle {
     id: control
 
     property string label
     property string keyValue: label
-    property string kind: "number" // "number", "operator" or "equals"
+    property string kind: "number" // "number", "operator", "equals" or "function"
     property string iconName
+    property string accessibleName
     property color pageColor: "#101010"
     property color inkColor: "#eeeeee"
 
@@ -16,6 +18,7 @@ Rectangle {
 
     Accessible.role: Accessible.Button
     Accessible.name: {
+        if (accessibleName !== "") return accessibleName;
         if (iconName === "backspace") return qsTr("Backspace");
         if (label === "AC") return qsTr("All clear");
         if (label === "±") return qsTr("Toggle sign");
@@ -36,7 +39,8 @@ Rectangle {
             base.b + (tint.b - base.b) * amount, 1);
     }
 
-    readonly property real restingLift: kind === "operator" ? 0.16 : 0.05
+    readonly property real restingLift: kind === "operator" ? 0.16
+        : (kind === "function" ? 0.025 : 0.05)
     readonly property real activeLift: restingLift
         + (hitArea.pressed ? 0.09 : (hitArea.containsMouse ? 0.045 : 0))
 
@@ -49,11 +53,17 @@ Rectangle {
 
     Text {
         anchors.centerIn: parent
+        width: parent.width * 0.86
+        horizontalAlignment: Text.AlignHCenter
         visible: control.iconName === ""
         text: control.label
         color: control.kind === "equals" ? control.pageColor : control.inkColor
         font.family: "iA Writer Mono S"
-        font.pixelSize: Math.round(Math.min(parent.height * 0.42, parent.width * 0.3))
+        // Function names run to four characters, so they shrink to fit.
+        fontSizeMode: Text.HorizontalFit
+        minimumPixelSize: 8
+        font.pixelSize: Math.round(Math.min(parent.height * 0.42, parent.width * 0.3)
+                                   * (control.kind === "function" ? 0.8 : 1))
     }
 
     Canvas {

@@ -356,10 +356,158 @@ private slots:
 
         Backend::evaluateTokens({"1", "÷", "0"}, &ok);
         QVERIFY(!ok);
+
+        QCOMPARE(Backend::evaluateTokens({"2", "×", "(", "3", "+", "4", ")"}, &ok), 14.0);
+        QVERIFY(ok);
+
+        QCOMPARE(Backend::evaluateTokens({"(", "(", "1", "+", "1", ")", "^", "3", ")"}, &ok), 8.0);
+        QVERIFY(ok);
+
+        Backend::evaluateTokens({"(", "2", "+", "3"}, &ok);
+        QVERIFY(!ok);
+
+        Backend::evaluateTokens({"2", ")"}, &ok);
+        QVERIFY(!ok);
+
+        Backend::evaluateTokens({"(", ")"}, &ok);
+        QVERIFY(!ok);
+    }
+
+    void groupsWithParentheses() {
+        Backend calculator;
+        press(calculator, "2 × ( 3 + 4 ) =");
+        QCOMPARE(calculator.display(), QStringLiteral("14"));
+        QCOMPARE(calculator.expression(), QStringLiteral("2 × (3 + 4)"));
+
+        // Equals closes whatever is still open.
+        press(calculator, "clear ( 1 + 2 ) × ( 3 + 4 =");
+        QCOMPARE(calculator.display(), QStringLiteral("21"));
+        QCOMPARE(calculator.expression(), QStringLiteral("(1 + 2) × (3 + 4)"));
+
+        // A number against a parenthesis multiplies it.
+        press(calculator, "clear 2 ( 3 + 4 ) 5 =");
+        QCOMPARE(calculator.display(), QStringLiteral("70"));
+        QCOMPARE(calculator.expression(), QStringLiteral("2 × (3 + 4) × 5"));
+
+        // ) with nothing open, or around nothing, is ignored.
+        press(calculator, "clear 5 ) =");
+        QCOMPARE(calculator.display(), QStringLiteral("5"));
+        press(calculator, "clear ( ) 5 =");
+        QCOMPARE(calculator.display(), QStringLiteral("5"));
+
+        // Percent takes the running total inside the group.
+        press(calculator, "clear 1 0 0 0 + ( 2 0 0 + 1 0 % ) =");
+        QCOMPARE(calculator.display(), QStringLiteral("1,220"));
+
+        // Backspace takes back a parenthesis, and the number before it.
+        press(calculator, "clear 2 × ( 3 ) backspace");
+        QCOMPARE(calculator.display(), QStringLiteral("3"));
+        QCOMPARE(calculator.expression(), QStringLiteral("2 × ("));
+        press(calculator, "backspace backspace");
+        QCOMPARE(calculator.expression(), QStringLiteral("2 ×"));
+    }
+
+    void appliesFunctionsToTheEntry() {
+        Backend calculator;
+        calculator.setDegrees(true);
+
+        press(calculator, "9 sqrt");
+        QCOMPARE(calculator.display(), QStringLiteral("3"));
+
+        // A computed value is whole: a digit starts a new number.
+        press(calculator, "4");
+        QCOMPARE(calculator.display(), QStringLiteral("4"));
+
+        press(calculator, "clear 1 + 3 square =");
+        QCOMPARE(calculator.display(), QStringLiteral("10"));
+
+        // After equals a function applies to the result.
+        press(calculator, "clear 2 × 5 = log");
+        QCOMPARE(calculator.display(), QStringLiteral("1"));
+
+        // After ) it applies to the whole group.
+        press(calculator, "clear 1 + ( 2 + 3 ) square =");
+        QCOMPARE(calculator.display(), QStringLiteral("26"));
+
+        press(calculator, "clear 5 factorial");
+        QCOMPARE(calculator.display(), QStringLiteral("120"));
+
+        press(calculator, "clear 2 reciprocal");
+        QCOMPARE(calculator.display(), QStringLiteral("0.5"));
+
+        press(calculator, "clear pi × 2 =");
+        QCOMPARE(calculator.display(), Backend::formatNumber(2 * M_PI));
+
+        press(calculator, "clear e ln");
+        QCOMPARE(calculator.display(), QStringLiteral("1"));
+    }
+
+    void functionsOutsideTheirDomainError() {
+        Backend calculator;
+        press(calculator, "4 sign sqrt");
+        QCOMPARE(calculator.display(), QStringLiteral("Error"));
+        QCOMPARE(calculator.expression(), QStringLiteral("√(-4)"));
+
+        press(calculator, "clear 3 + 0 ln");
+        QCOMPARE(calculator.display(), QStringLiteral("Error"));
+        QCOMPARE(calculator.expression(), QStringLiteral("3 + ln(0)"));
+
+        press(calculator, "clear 0 reciprocal");
+        QCOMPARE(calculator.display(), QStringLiteral("Error"));
+
+        press(calculator, "clear 2 asin");
+        QCOMPARE(calculator.display(), QStringLiteral("Error"));
+
+        press(calculator, "clear 1 7 1 factorial");
+        QCOMPARE(calculator.display(), QStringLiteral("Error"));
+    }
+
+    void measuresAnglesInDegreesOrRadians() {
+        bool ok = false;
+        QCOMPARE(Backend::applyFunction("sin", 30, true, &ok), 0.5);
+        QCOMPARE(Backend::formatNumber(Backend::applyFunction("cos", 60, true, &ok)),
+                 QStringLiteral("0.5"));
+
+        // Multiples of 90° are exact.
+        QCOMPARE(Backend::applyFunction("sin", 180, true, &ok), 0.0);
+        QCOMPARE(Backend::applyFunction("cos", -90, true, &ok), 0.0);
+        QCOMPARE(Backend::applyFunction("sin", 270, true, &ok), -1.0);
+        Backend::applyFunction("tan", 90, true, &ok);
+        QVERIFY(!ok);
+
+        QCOMPARE(Backend::applyFunction("sin", M_PI, false, &ok), 0.0);
+        QVERIFY(ok);
+        QCOMPARE(Backend::applyFunction("asin", 1, true, &ok), 90.0);
+        QCOMPARE(Backend::applyFunction("asin", 1, false, &ok), M_PI / 2);
+
+        Backend calculator;
+        calculator.setDegrees(true);
+        press(calculator, "angle");
+        QVERIFY(!calculator.degrees());
+        press(calculator, "pi sin");
+        QCOMPARE(calculator.display(), QStringLiteral("0"));
+        calculator.setDegrees(true);
+    }
+
+    void remembersScientificMode() {
+        {
+            Backend calculator;
+            calculator.setScientific(false);
+            press(calculator, "scientific");
+            QVERIFY(calculator.scientific());
+            calculator.setTextScale(1);
+            const QVariantMap size = calculator.defaultWindowSize();
+            QCOMPARE(size.value(QStringLiteral("width")).toInt(), 800);
+            QCOMPARE(size.value(QStringLiteral("height")).toInt(), 568);
+        }
+        Backend reopened;
+        QVERIFY(reopened.scientific());
+        reopened.setScientific(false);
     }
 
     void opensAtTheDesignSizeForTheTextScale() {
         Backend calculator;
+        calculator.setScientific(false);
         calculator.setTextScale(1);
         QVariantMap size = calculator.defaultWindowSize();
         QCOMPARE(size.value(QStringLiteral("width")).toInt(), 400);

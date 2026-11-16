@@ -26,9 +26,24 @@ Percent follows the familiar calculator convention: with a pending `+` or `−`
 it takes that percentage of the running total (`200 + 10 % =` gives `220`),
 while with `×`, `÷`, or `^` — or on its own — it simply divides by 100.
 
+## Scientific mode
+
+The `fx` button at the top left opens four more key columns beside the keypad,
+and the window widens to fit them; the choice is remembered. It adds
+parentheses, `sin`/`cos`/`tan` and their inverses, `ln`, `log`, `e^x`, `√`,
+`x²`, `x³`, `1/x`, `n!`, `x^y`, and the constants `π` and `e`.
+
+Functions work like a pocket scientific calculator: they apply at once to the
+number on screen, so `9 √` shows `3`. After `)` they apply to the whole group,
+and after `=` to the result. A number next to a parenthesis multiplies it, so
+`2 (3 + 4)` is `14`, and `=` closes any parentheses still open. The `deg`/`rad`
+key switches the angle unit for the trigonometric functions; whole multiples
+of 90° come out exact, so `sin 180` is `0` and `tan 90` is an error.
+
 Everything works from the keyboard too:
 
-- `0-9`, `.`, `+`, `-`, `*` or `x`, `/`, `^`, and `%` enter digits and operators.
+- `0-9`, `.`, `+`, `-`, `*` or `x`, `/`, `^`, `%`, `(`, and `)` enter digits,
+  operators, and parentheses.
   The numpad enters digits whether or not NumLock is on.
 - `Enter` or `=` calculates.
 - `Backspace` deletes the last digit.
