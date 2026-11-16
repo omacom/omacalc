@@ -18,6 +18,8 @@ const QString minusSign = QStringLiteral("−");
 const QString multiplySign = QStringLiteral("×");
 const QString divideSign = QStringLiteral("÷");
 const QString powerSign = QStringLiteral("^");
+const QString openParenthesis = QStringLiteral("(");
+const QString closeParenthesis = QStringLiteral(")");
 
 // A leading # is a bare hex color rather than a comment.
 QString withoutTomlComment(const QString &text) {
@@ -48,6 +50,120 @@ bool isOperator(const QString &token) {
         || token == powerSign;
 }
 
+const QStringList functionKeys = {
+    QStringLiteral("sin"), QStringLiteral("cos"), QStringLiteral("tan"),
+    QStringLiteral("asin"), QStringLiteral("acos"), QStringLiteral("atan"),
+    QStringLiteral("ln"), QStringLiteral("log"), QStringLiteral("exp"),
+    QStringLiteral("sqrt"), QStringLiteral("square"), QStringLiteral("cube"),
+    QStringLiteral("reciprocal"), QStringLiteral("factorial"),
+};
+
+// How a failed function reads back on the expression line: √(-4), 1/(0), 3.5!
+QString describeFunction(const QString &function, const QString &operand) {
+    if (function == QStringLiteral("factorial"))
+        return operand + QLatin1Char('!');
+    if (function == QStringLiteral("sqrt"))
+        return QStringLiteral("√(") + operand + QLatin1Char(')');
+    if (function == QStringLiteral("reciprocal"))
+        return QStringLiteral("1/(") + operand + QLatin1Char(')');
+    if (function == QStringLiteral("exp"))
+        return QStringLiteral("e^(") + operand + QLatin1Char(')');
+    return function + QLatin1Char('(') + operand + QLatin1Char(')');
+}
+
+bool isParenthesis(const QString &token) {
+    return token == openParenthesis || token == closeParenthesis;
+}
+
+// Recursive descent over the token list: + and − bind loosest, then × and ÷,
+// then ^ (right to left), with parentheses grouping anywhere a number can go.
+class TokenParser {
+public:
+    explicit TokenParser(const QStringList &tokens) : m_tokens(tokens) {}
+
+    double parse(bool *ok) {
+        const double value = sum();
+        *ok = m_ok && m_position == m_tokens.size() && std::isfinite(value);
+        return *ok ? value : 0;
+    }
+
+private:
+    bool at(const QString &token) const {
+        return m_position < m_tokens.size() && m_tokens.at(m_position) == token;
+    }
+
+    double sum() {
+        double total = product();
+        while (m_ok && (at(plusSign) || at(minusSign))) {
+            const bool adding = at(plusSign);
+            ++m_position;
+            const double operand = product();
+            total = adding ? total + operand : total - operand;
+            if (!std::isfinite(total))
+                return fail();
+        }
+        return total;
+    }
+
+    double product() {
+        double total = power();
+        while (m_ok && (at(multiplySign) || at(divideSign))) {
+            const bool multiplying = at(multiplySign);
+            ++m_position;
+            const double operand = power();
+            // Fail here rather than at the end: a later step like ^ 0 would
+            // otherwise turn the infinity back into an ordinary number.
+            if (!multiplying && operand == 0)
+                return fail();
+            total = multiplying ? total * operand : total / operand;
+            if (!std::isfinite(total))
+                return fail();
+        }
+        return total;
+    }
+
+    double power() {
+        const double base = operand();
+        if (!m_ok || !at(powerSign))
+            return base;
+        ++m_position;
+        const double exponent = power();
+        // A negative base with a fractional exponent has no real result.
+        if (base < 0.0 && std::floor(exponent) != exponent)
+            return fail();
+        const double powered = std::pow(base, exponent);
+        return std::isfinite(powered) ? powered : fail();
+    }
+
+    double operand() {
+        if (m_position >= m_tokens.size())
+            return fail();
+        if (at(openParenthesis)) {
+            ++m_position;
+            const double value = sum();
+            if (!m_ok || !at(closeParenthesis))
+                return fail();
+            ++m_position;
+            return value;
+        }
+        bool numberOk = false;
+        const double value = QLocale::c().toDouble(m_tokens.at(m_position), &numberOk);
+        if (!numberOk)
+            return fail();
+        ++m_position;
+        return value;
+    }
+
+    double fail() {
+        m_ok = false;
+        return 0;
+    }
+
+    const QStringList &m_tokens;
+    int m_position = 0;
+    bool m_ok = true;
+};
+
 // Digits are entered raw, so "5." and "-" can linger while typing. Seal them
 // into plain numbers before they join the expression.
 QString sealNumber(const QString &entry) {
@@ -67,6 +183,9 @@ bool inExponentForm(const QString &entry) {
 }
 
 Backend::Backend(QObject *parent) : QObject(parent) {
+    QSettings settings;
+    m_scientific = settings.value(QStringLiteral("scientific"), false).toBool();
+    m_degrees = settings.value(QStringLiteral("degrees"), true).toBool();
     // Older builds stored the compositor's size. On Hyprland 0.56 that size
     // was the tiled or maximized rectangle, and the maximized flag was set for
     // a normal window, so the next launch filled the screen. Drop both keys.
@@ -98,6 +217,10 @@ QString Backend::display() const {
 QString Backend::plainDisplay() const {
     if (m_errored)
         return tr("Error");
+    // A computed entry carries every digit for the next step; show it at
+    // display precision like any result.
+    if (m_entryComputed)
+        return formatNumber(QLocale::c().toDouble(m_entry));
     if (!m_entry.isEmpty())
         return m_entry;
     if (m_justEvaluated)
@@ -108,13 +231,18 @@ QString Backend::plainDisplay() const {
 // Operand tokens carry full round-trip precision when they come from a chained
 // result; present every number at display precision instead.
 QString Backend::prettyExpression(const QStringList &tokens) {
-    QStringList pretty;
-    pretty.reserve(tokens.size());
-    for (const QString &token : tokens)
-        pretty << (isOperator(token)
-                       ? token
-                       : groupDigits(formatNumber(QLocale::c().toDouble(token))));
-    return pretty.join(QLatin1Char(' '));
+    // Spaces around operators, none just inside parentheses: 2 × (3 + 4).
+    QString pretty;
+    QString previous;
+    for (const QString &token : tokens) {
+        if (!pretty.isEmpty() && previous != openParenthesis && token != closeParenthesis)
+            pretty += QLatin1Char(' ');
+        pretty += (isOperator(token) || isParenthesis(token))
+            ? token
+            : groupDigits(formatNumber(QLocale::c().toDouble(token)));
+        previous = token;
+    }
+    return pretty;
 }
 
 // The number the calculator is "at" right now: the entry being typed, or the
@@ -122,8 +250,16 @@ QString Backend::prettyExpression(const QStringList &tokens) {
 QString Backend::currentValue() const {
     if (!m_entry.isEmpty())
         return sealNumber(m_entry);
+    // After ")" the calculator is at the group's value, not its last number.
+    const int group = closedGroupStart();
+    if (group >= 0) {
+        bool ok = false;
+        const double value = evaluateTokens(m_tokens.mid(group), &ok);
+        if (ok)
+            return QString::number(value, 'g', 17);
+    }
     for (int i = m_tokens.size() - 1; i >= 0; --i) {
-        if (!isOperator(m_tokens.at(i)))
+        if (!isOperator(m_tokens.at(i)) && !isParenthesis(m_tokens.at(i)))
             return m_tokens.at(i);
     }
     return QStringLiteral("0");
@@ -154,6 +290,22 @@ void Backend::pressKey(const QString &key) {
         pressBackspace();
     } else if (key == QStringLiteral("clear")) {
         pressClear();
+    } else if (key == openParenthesis) {
+        pressOpenParenthesis();
+    } else if (key == closeParenthesis) {
+        pressCloseParenthesis();
+    } else if (key == QStringLiteral("pi") || key == QStringLiteral("π")) {
+        pressConstant(M_PI);
+    } else if (key == QStringLiteral("e")) {
+        pressConstant(M_E);
+    } else if (key == QStringLiteral("angle")) {
+        setDegrees(!m_degrees);
+        return;
+    } else if (key == QStringLiteral("scientific")) {
+        setScientific(!m_scientific);
+        return;
+    } else if (functionKeys.contains(key)) {
+        pressFunction(key);
     } else {
         return;
     }
@@ -169,8 +321,9 @@ void Backend::pressDigit(const QString &digit) {
         // appending to the result.
         pressClear();
     }
-    if (inExponentForm(m_entry))
+    if (inExponentForm(m_entry) || m_entryComputed)
         m_entry.clear();
+    m_entryComputed = false;
 
     if (m_entry == QStringLiteral("0")) {
         m_entry = digit;
@@ -201,8 +354,9 @@ void Backend::pressDecimal() {
         pressClear();
     if (m_justEvaluated)
         pressClear();
-    if (inExponentForm(m_entry))
+    if (inExponentForm(m_entry) || m_entryComputed)
         m_entry.clear();
+    m_entryComputed = false;
 
     if (m_entry.isEmpty())
         m_entry = QStringLiteral("0.");
@@ -223,9 +377,9 @@ void Backend::pressOperator(const QString &pretty) {
     }
 
     if (!m_entry.isEmpty()) {
-        m_tokens << sealNumber(m_entry) << pretty;
-        m_entry.clear();
-    } else if (m_tokens.isEmpty()) {
+        pushEntry();
+        m_tokens << pretty;
+    } else if (m_tokens.isEmpty() || m_tokens.last() == openParenthesis) {
         m_tokens << QStringLiteral("0") << pretty;
     } else if (isOperator(m_tokens.last())) {
         m_tokens.last() = pretty;
@@ -238,13 +392,21 @@ void Backend::pressEquals() {
     if (m_errored || m_justEvaluated)
         return;
 
+    pushEntry();
     QStringList finalTokens = m_tokens;
-    if (!m_entry.isEmpty())
-        finalTokens << sealNumber(m_entry);
-    while (!finalTokens.isEmpty() && isOperator(finalTokens.last()))
+    // Drop a dangling operator or an empty "(", then close what is still open.
+    while (!finalTokens.isEmpty()
+           && (isOperator(finalTokens.last()) || finalTokens.last() == openParenthesis))
         finalTokens.removeLast();
-    if (finalTokens.isEmpty())
+    if (finalTokens.isEmpty()) {
+        m_tokens.clear();
         return;
+    }
+    int depth = 0;
+    for (const QString &token : finalTokens)
+        depth += token == openParenthesis ? 1 : (token == closeParenthesis ? -1 : 0);
+    for (; depth > 0; --depth)
+        finalTokens << closeParenthesis;
 
     m_evaluatedExpression = prettyExpression(finalTokens);
     bool ok = false;
@@ -270,18 +432,35 @@ void Backend::pressPercent() {
     if (m_justEvaluated) {
         const double percent = m_resultValue / 100.0;
         clearEvaluation();
-        m_entry = formatNumber(percent);
+        m_entry = QString::number(percent, 'g', 17);
+        m_entryComputed = true;
         return;
     }
 
-    bool ok = false;
-    const double value = QLocale::c().toDouble(currentValue(), &ok);
-    if (!ok)
+    if (m_entry.isEmpty() && !m_tokens.isEmpty() && m_tokens.last() == openParenthesis)
         return;
+
+    // A closed group is a single value: (2 + 3) % is 0.05.
+    double value = 0;
+    if (m_entry.isEmpty() && closedGroupStart() >= 0) {
+        QString shown;
+        if (!takeClosedGroup(&value, &shown)) {
+            m_evaluatedExpression = prettyExpression(m_tokens) + QStringLiteral(" %");
+            m_errored = true;
+            m_tokens.clear();
+            return;
+        }
+    } else {
+        bool ok = false;
+        value = QLocale::c().toDouble(currentValue(), &ok);
+        if (!ok)
+            return;
+    }
 
     double percent = value / 100.0;
     if (!m_tokens.isEmpty() && (m_tokens.last() == plusSign || m_tokens.last() == minusSign)) {
-        QStringList leftSide = m_tokens;
+        // The running total is the one inside the innermost open parenthesis.
+        QStringList leftSide = m_tokens.mid(currentGroupStart());
         leftSide.removeLast();
         bool baseOk = false;
         const double base = evaluateTokens(leftSide, &baseOk);
@@ -294,14 +473,16 @@ void Backend::pressPercent() {
         }
     }
     if (!std::isfinite(percent)) {
-        m_evaluatedExpression = prettyExpression(m_tokens + QStringList(currentValue()))
+        m_evaluatedExpression = prettyExpression(m_tokens + QStringList(QString::number(value, 'g', 17)))
             + QStringLiteral(" %");
         m_errored = true;
         m_tokens.clear();
         m_entry.clear();
         return;
     }
-    m_entry = formatNumber(percent);
+    // Keep every digit for the next step; the display rounds it.
+    m_entry = QString::number(percent, 'g', 17);
+    m_entryComputed = true;
 }
 
 void Backend::pressToggleSign() {
@@ -312,6 +493,20 @@ void Backend::pressToggleSign() {
 
     // With nothing typed yet, start a fresh negative operand instead of
     // dredging up the previous one: 4 + ± 2 enters -2, not -42.
+    // After ")" the sign belongs to the whole group: (2 + 3) ± is -5.
+    if (m_entry.isEmpty() && closedGroupStart() >= 0) {
+        double value = 0;
+        QString shown;
+        if (!takeClosedGroup(&value, &shown)) {
+            m_evaluatedExpression = prettyExpression(m_tokens) + QStringLiteral(" ±");
+            m_errored = true;
+            m_tokens.clear();
+            return;
+        }
+        m_entry = QString::number(-value, 'g', 17);
+        m_entryComputed = true;
+        return;
+    }
     if (m_entry.isEmpty()) {
         m_entry = QStringLiteral("-0");
         return;
@@ -330,8 +525,19 @@ void Backend::pressBackspace() {
     }
     if (m_justEvaluated)
         beginEditingAfterResult();
-    if (inExponentForm(m_entry)) {
+    if (inExponentForm(m_entry) || m_entryComputed) {
         m_entry = QStringLiteral("0");
+        m_entryComputed = false;
+        return;
+    }
+
+    // With nothing typed, backspace takes back a parenthesis. Removing a ")"
+    // hands the number before it back to the entry for editing.
+    if (m_entry.isEmpty() && !m_tokens.isEmpty() && isParenthesis(m_tokens.last())) {
+        m_tokens.removeLast();
+        if (!m_tokens.isEmpty() && !isOperator(m_tokens.last())
+                && !isParenthesis(m_tokens.last()))
+            m_entry = m_tokens.takeLast();
         return;
     }
 
@@ -343,6 +549,7 @@ void Backend::pressBackspace() {
 void Backend::pressClear() {
     m_tokens.clear();
     m_entry.clear();
+    m_entryComputed = false;
     clearEvaluation();
     m_errored = false;
 }
@@ -352,8 +559,225 @@ void Backend::pressClear() {
 // "42 × 3 + 7".
 void Backend::beginEditingAfterResult() {
     m_entry = m_result;
+    m_entryComputed = false;
     m_tokens.clear();
     clearEvaluation();
+}
+
+// Seals the number being typed into the expression. A number straight after
+// ")" multiplies the group, so (2 + 3) 4 reads as (2 + 3) × 4.
+void Backend::pushEntry() {
+    if (m_entry.isEmpty())
+        return;
+    if (!m_tokens.isEmpty() && m_tokens.last() == closeParenthesis)
+        m_tokens << multiplySign;
+    m_tokens << sealNumber(m_entry);
+    m_entry.clear();
+    m_entryComputed = false;
+}
+
+int Backend::openParentheses() const {
+    int depth = 0;
+    for (const QString &token : m_tokens)
+        depth += token == openParenthesis ? 1 : (token == closeParenthesis ? -1 : 0);
+    return depth;
+}
+
+// Index of the first token inside the innermost parenthesis still open, or 0.
+int Backend::currentGroupStart() const {
+    int depth = 0;
+    for (int i = m_tokens.size() - 1; i >= 0; --i) {
+        if (m_tokens.at(i) == closeParenthesis) {
+            ++depth;
+        } else if (m_tokens.at(i) == openParenthesis) {
+            if (depth == 0)
+                return i + 1;
+            --depth;
+        }
+    }
+    return 0;
+}
+
+// Index of the "(" matching a trailing ")", or -1 when the tokens do not end
+// in a closed group.
+int Backend::closedGroupStart() const {
+    if (m_tokens.isEmpty() || m_tokens.last() != closeParenthesis)
+        return -1;
+    int depth = 0;
+    for (int i = m_tokens.size() - 1; i >= 0; --i) {
+        if (m_tokens.at(i) == closeParenthesis)
+            ++depth;
+        else if (m_tokens.at(i) == openParenthesis && --depth == 0)
+            return i;
+    }
+    return -1;
+}
+
+// Evaluates the trailing closed group into *value and, when it is valid,
+// removes it from the tokens so the caller can replace it with an entry.
+// *shown is the group as the expression line reads it, for error messages.
+bool Backend::takeClosedGroup(double *value, QString *shown) {
+    const int start = closedGroupStart();
+    if (start < 0)
+        return false;
+    const QStringList group = m_tokens.mid(start);
+    bool ok = false;
+    *value = evaluateTokens(group, &ok);
+    *shown = prettyExpression(group);
+    if (ok)
+        m_tokens = m_tokens.mid(0, start);
+    return ok;
+}
+
+// A number already typed, or a closed group, multiplies what the parenthesis
+// opens: 2 ( 3 + 4 ) is 2 × (3 + 4).
+void Backend::pressOpenParenthesis() {
+    if (m_errored || m_justEvaluated)
+        pressClear();
+    if (!m_entry.isEmpty()) {
+        pushEntry();
+        m_tokens << multiplySign;
+    } else if (!m_tokens.isEmpty() && m_tokens.last() == closeParenthesis) {
+        m_tokens << multiplySign;
+    }
+    m_tokens << openParenthesis;
+}
+
+void Backend::pressCloseParenthesis() {
+    if (m_errored || m_justEvaluated || openParentheses() == 0)
+        return;
+    pushEntry();
+    while (!m_tokens.isEmpty() && isOperator(m_tokens.last()))
+        m_tokens.removeLast();
+    // An empty pair closes nothing.
+    if (m_tokens.isEmpty() || m_tokens.last() == openParenthesis)
+        return;
+    m_tokens << closeParenthesis;
+}
+
+// π and e replace whatever is being typed, like a paste.
+void Backend::pressConstant(double value) {
+    if (m_errored || m_justEvaluated)
+        pressClear();
+    m_entry = QString::number(value, 'g', 17);
+    m_entryComputed = true;
+}
+
+// Functions apply at once to the number on screen, the way a pocket
+// scientific calculator works: 9 √ shows 3. After ")" they apply to the whole
+// group, and after = to the result.
+void Backend::pressFunction(const QString &function) {
+    if (m_errored)
+        return;
+
+    double value = 0;
+    QString shown;
+    if (m_justEvaluated) {
+        value = m_resultValue;
+        shown = m_result;
+        clearEvaluation();
+    } else if (m_entry.isEmpty() && closedGroupStart() >= 0) {
+        if (!takeClosedGroup(&value, &shown))
+            value = qQNaN();
+    } else {
+        shown = currentValue();
+        value = QLocale::c().toDouble(shown);
+        shown = groupDigits(formatNumber(value));
+    }
+
+    bool ok = false;
+    const double result = std::isnan(value) ? 0 : applyFunction(function, value, m_degrees, &ok);
+    if (!ok) {
+        m_evaluatedExpression = prettyExpression(m_tokens);
+        if (!m_evaluatedExpression.isEmpty())
+            m_evaluatedExpression += QLatin1Char(' ');
+        m_evaluatedExpression += describeFunction(function, shown);
+        m_errored = true;
+        m_tokens.clear();
+        m_entry.clear();
+        m_entryComputed = false;
+        return;
+    }
+    m_entry = QString::number(result, 'g', 17);
+    m_entryComputed = true;
+}
+
+// Sets *ok false for an unknown function or a value outside its domain.
+double Backend::applyFunction(const QString &function, double value, bool degrees, bool *ok) {
+    bool localOk = false;
+    if (!ok)
+        ok = &localOk;
+    *ok = false;
+
+    const double toRadians = degrees ? M_PI / 180.0 : 1.0;
+    double result = qQNaN();
+
+    if (function == QStringLiteral("sin") || function == QStringLiteral("cos")
+            || function == QStringLiteral("tan")) {
+        const bool sine = function == QStringLiteral("sin");
+        const bool cosine = function == QStringLiteral("cos");
+        // Whole multiples of 90° are exact, so sin 180 is 0 and tan 90 is
+        // an error rather than 1.2e-16 and 1.6e16.
+        if (degrees && std::isfinite(value) && std::fmod(value, 90.0) == 0) {
+            const int quarter = int(std::fmod(std::fmod(value / 90.0, 4.0) + 4.0, 4.0));
+            static const int sines[] = {0, 1, 0, -1};
+            const int s = sines[quarter];
+            const int c = sines[(quarter + 1) % 4];
+            if (sine)
+                result = s;
+            else if (cosine)
+                result = c;
+            else if (c != 0)
+                result = double(s) / c;
+        } else {
+            const double angle = value * toRadians;
+            result = sine ? std::sin(angle) : (cosine ? std::cos(angle) : std::tan(angle));
+            // Rounding noise at a zero crossing, like sin π, but not the
+            // genuinely tiny sine of a tiny angle.
+            if (std::fabs(result) < 1e-15 && std::fabs(angle) > 1e-6)
+                result = 0;
+        }
+    } else if (function == QStringLiteral("asin")) {
+        if (value >= -1 && value <= 1)
+            result = std::asin(value) / toRadians;
+    } else if (function == QStringLiteral("acos")) {
+        if (value >= -1 && value <= 1)
+            result = std::acos(value) / toRadians;
+    } else if (function == QStringLiteral("atan")) {
+        result = std::atan(value) / toRadians;
+    } else if (function == QStringLiteral("ln")) {
+        if (value > 0)
+            result = std::log(value);
+    } else if (function == QStringLiteral("log")) {
+        if (value > 0)
+            result = std::log10(value);
+    } else if (function == QStringLiteral("exp")) {
+        result = std::exp(value);
+    } else if (function == QStringLiteral("sqrt")) {
+        if (value >= 0)
+            result = std::sqrt(value);
+    } else if (function == QStringLiteral("square")) {
+        result = value * value;
+    } else if (function == QStringLiteral("cube")) {
+        result = value * value * value;
+    } else if (function == QStringLiteral("reciprocal")) {
+        if (value != 0)
+            result = 1.0 / value;
+    } else if (function == QStringLiteral("factorial")) {
+        // Whole numbers multiply out exactly; fractions use Γ(x + 1).
+        if (value >= 0 && std::floor(value) == value) {
+            result = 1;
+            for (double i = 2; i <= value && std::isfinite(result); ++i)
+                result *= i;
+        } else if (value > -1 || std::floor(value) != value) {
+            result = std::tgamma(value + 1);
+        }
+    }
+
+    if (!std::isfinite(result))
+        return 0;
+    *ok = true;
+    return result;
 }
 
 void Backend::clearEvaluation() {
@@ -367,78 +791,11 @@ double Backend::evaluateTokens(const QStringList &tokens, bool *ok) {
     bool localOk = false;
     if (!ok)
         ok = &localOk;
-
-    *ok = false;
-    if (tokens.size() % 2 == 0)
+    if (tokens.isEmpty()) {
+        *ok = false;
         return 0;
-
-    QList<double> values;
-    QStringList operators;
-
-    bool numberOk = false;
-    values << QLocale::c().toDouble(tokens.first(), &numberOk);
-    if (!numberOk)
-        return 0;
-
-    for (int i = 1; i + 1 < tokens.size(); i += 2) {
-        const QString &op = tokens.at(i);
-        const double operand = QLocale::c().toDouble(tokens.at(i + 1), &numberOk);
-        if (!numberOk || !isOperator(op))
-            return 0;
-        operators << op;
-        values << operand;
     }
-
-    // Fold ^ right-to-left so 2 ^ 3 ^ 2 is 2^(3^2), not (2^3)^2. Then fold ×
-    // and ÷ left-to-right, then + and −.
-    for (int i = operators.size() - 1; i >= 0; --i) {
-        if (operators.at(i) != powerSign)
-            continue;
-
-        const double base = values.at(i);
-        const double exponent = values.at(i + 1);
-        // A negative base with a fractional exponent has no real result.
-        if (base < 0.0 && std::floor(exponent) != exponent)
-            return 0;
-
-        const double powered = std::pow(base, exponent);
-        if (!std::isfinite(powered))
-            return 0;
-
-        values[i] = powered;
-        values.removeAt(i + 1);
-        operators.removeAt(i);
-    }
-
-    QList<double> additiveValues;
-    QStringList additiveOperators;
-    additiveValues << values.first();
-    for (int i = 0; i < operators.size(); ++i) {
-        const QString &op = operators.at(i);
-        const double operand = values.at(i + 1);
-        if (op == multiplySign) {
-            additiveValues.last() *= operand;
-        } else if (op == divideSign) {
-            additiveValues.last() /= operand;
-        } else {
-            additiveOperators << op;
-            additiveValues << operand;
-        }
-    }
-
-    double total = additiveValues.first();
-    for (int i = 0; i < additiveOperators.size(); ++i) {
-        if (additiveOperators.at(i) == plusSign)
-            total += additiveValues.at(i + 1);
-        else
-            total -= additiveValues.at(i + 1);
-    }
-
-    if (!std::isfinite(total))
-        return 0;
-
-    *ok = true;
-    return total;
+    return TokenParser(tokens).parse(ok);
 }
 
 QString Backend::formatNumber(double value) {
@@ -508,6 +865,7 @@ void Backend::pasteNumber() {
     if (m_errored || m_justEvaluated)
         pressClear();
     m_entry = formatNumber(value);
+    m_entryComputed = false;
     emit calculationChanged();
 }
 
@@ -519,7 +877,9 @@ QVariantMap Backend::defaultWindowSize() const {
     // 400×568 is the v0.2.2 design size. The minimum matches Main.qml, so a
     // text scale below 1 still opens at a usable calculator.
     QVariantMap size;
-    size.insert(QStringLiteral("width"), qMax(300, qRound(400 * scale)));
+    // Scientific mode adds four key columns, doubling the design width.
+    const int designWidth = m_scientific ? 800 : 400;
+    size.insert(QStringLiteral("width"), qMax(designWidth * 3 / 4, qRound(designWidth * scale)));
     size.insert(QStringLiteral("height"), qMax(430, qRound(568 * scale)));
     return size;
 }
@@ -543,6 +903,24 @@ void Backend::setDarkMode(bool darkMode) {
     m_darkMode = darkMode;
     loadOmarchyTheme();
     emit darkModeChanged();
+}
+
+void Backend::setScientific(bool scientific) {
+    if (m_scientific == scientific)
+        return;
+
+    m_scientific = scientific;
+    QSettings().setValue(QStringLiteral("scientific"), scientific);
+    emit scientificChanged();
+}
+
+void Backend::setDegrees(bool degrees) {
+    if (m_degrees == degrees)
+        return;
+
+    m_degrees = degrees;
+    QSettings().setValue(QStringLiteral("degrees"), degrees);
+    emit degreesChanged();
 }
 
 void Backend::setTextScale(qreal textScale) {
