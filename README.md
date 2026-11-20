@@ -18,6 +18,10 @@ with the result after `=`, so `42 × 3 + 7` reads back exactly as it was entered
 From the keyboard, `^` raises to a power ahead of everything else, so
 `2 × 3 ^ 2` gives `18`.
 
+Numbers are grouped with thousands separators as you type, in the display and
+the expression line alike, so `1234567.89` reads as `1,234,567.89`. The
+fraction is left ungrouped.
+
 Percent follows the familiar calculator convention: with a pending `+` or `−`
 it takes that percentage of the running total (`200 + 10 % =` gives `220`),
 while with `×`, `÷`, or `^` — or on its own — it simply divides by 100.
@@ -30,8 +34,8 @@ Everything works from the keyboard too:
 - `Backspace` deletes the last digit.
 - `C` or `Escape` clears.
 - `S` toggles the sign.
-- `Ctrl+C` or `Super+C` copies the result.
-- `Ctrl+V` or `Super+V` pastes a number.
+- `Ctrl+C` or `Super+C` copies the result, without separators.
+- `Ctrl+V` or `Super+V` pastes a number, with or without separators.
 - `Ctrl+M` adds the current value to memory, `Ctrl+R` recalls it, and `Ctrl+Shift+M` clears it. Memory is kept for the next launch.
 
 Colors follow the current Omarchy theme (`~/.local/state/omarchy/current/theme/colors.toml`)
