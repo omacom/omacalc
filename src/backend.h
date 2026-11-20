@@ -5,6 +5,9 @@
 #include <QString>
 #include <QStringList>
 #include <QVariantMap>
+#include <functional>
+
+class QSettings;
 
 class Backend : public QObject {
     Q_OBJECT
@@ -71,6 +74,7 @@ private:
     void loadOmarchyTheme();
     void watchOmarchyTheme();
     void discardSavedWindowGeometry();
+    bool withMemory(const std::function<void(QSettings &)> &change);
 
     QStringList m_tokens;
     QString m_entry;

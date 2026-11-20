@@ -4,8 +4,10 @@
 #include <QColor>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QLocale>
+#include <QLockFile>
 #include <QRegularExpression>
 #include <QSettings>
 #include <QTextStream>
@@ -452,6 +454,22 @@ QString Backend::formatNumber(double value) {
     return QString::number(value, 'g', 15);
 }
 
+// One lock covers the whole read-modify-write, so two windows cannot each
+// add onto the same saved total and then overwrite each other.
+bool Backend::withMemory(const std::function<void(QSettings &)> &change) {
+    QSettings settings;
+    QDir().mkpath(QFileInfo(settings.fileName()).path());
+    // Qt already locks "<settings>.lock" inside sync(), so this name has to differ.
+    QLockFile lock(settings.fileName() + QStringLiteral(".memory.lock"));
+    lock.setStaleLockTime(3000);
+    if (!lock.tryLock(2000))
+        return false;
+    settings.sync();
+    change(settings);
+    settings.sync();
+    return true;
+}
+
 void Backend::memoryAdd() {
     bool ok = false;
     const double value = m_justEvaluated
@@ -461,26 +479,37 @@ void Backend::memoryAdd() {
         ok = std::isfinite(m_resultValue);
     if (!ok || !std::isfinite(value))
         return;
-    // An overflowed total could never be recalled, only cleared.
-    QSettings settings;
-    const double total = settings.value(QStringLiteral("memory"), 0).toDouble() + value;
-    if (!std::isfinite(total))
-        return;
-    settings.setValue(QStringLiteral("memory"), total);
+    withMemory([value](QSettings &settings) {
+        // An overflowed total could never be recalled, only cleared.
+        const double total = settings.value(QStringLiteral("memory"), 0).toDouble() + value;
+        if (!std::isfinite(total))
+            return;
+        settings.setValue(QStringLiteral("memory"), total);
+    });
 }
 
 void Backend::memoryRecall() {
-    const double value = QSettings().value(QStringLiteral("memory"), 0).toDouble();
-    if (!std::isfinite(value))
+    double value = 0;
+    bool haveValue = false;
+    withMemory([&](QSettings &settings) {
+        value = settings.value(QStringLiteral("memory"), 0).toDouble();
+        haveValue = std::isfinite(value);
+    });
+    if (!haveValue)
         return;
-    if (m_errored || m_justEvaluated)
-        pressClear();
-    m_entry = formatNumber(value);
+    // Same path as equals: the display is rounded, and a following operator
+    // chains from the exact double rather than from that text.
+    pressClear();
+    m_resultValue = value;
+    m_result = formatNumber(value);
+    m_justEvaluated = true;
     emit calculationChanged();
 }
 
 void Backend::memoryClear() {
-    QSettings().setValue(QStringLiteral("memory"), 0);
+    withMemory([](QSettings &settings) {
+        settings.setValue(QStringLiteral("memory"), 0);
+    });
 }
 
 // Separates the whole-number digits into groups of three with commas, so

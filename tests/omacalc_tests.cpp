@@ -3,6 +3,8 @@
 #include <QElapsedTimer>
 #include <QGuiApplication>
 #include <QJsonDocument>
+#include <QProcess>
+#include <QProcessEnvironment>
 #include <QJsonObject>
 #include <QRect>
 #include <QSettings>
@@ -26,8 +28,13 @@ class OmacalcTest : public QObject {
 
 private slots:
     void initTestCase() {
-        QVERIFY(m_settingsDirectory.isValid());
         QSettings::setDefaultFormat(QSettings::IniFormat);
+        const QString shared = qEnvironmentVariable("OMACALC_SETTINGS_DIR");
+        if (!shared.isEmpty()) {
+            QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, shared);
+            return;
+        }
+        QVERIFY(m_settingsDirectory.isValid());
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
                            m_settingsDirectory.path());
     }
@@ -364,6 +371,41 @@ private slots:
         press(again, "clear");
         again.memoryRecall();
         QCOMPARE(again.display(), QStringLiteral("1e+308"));
+
+        // 10^15 + 1 does not fit in the 15-digit display, but subtracting
+        // 10^15 after a recall must still leave 1.
+        press(again, "clear");
+        again.memoryClear();
+        press(again, "1 0 ^ 1 5 + 1 =");
+        again.memoryAdd();
+        again.memoryRecall();
+        press(again, "- 1 0 ^ 1 5 =");
+        QCOMPARE(again.display(), QStringLiteral("1"));
+    }
+
+    void recallsMemoryFromDisk() {
+        if (qEnvironmentVariableIsEmpty("OMACALC_SETTINGS_DIR"))
+            QSKIP("started by remembersAcrossLaunches");
+        Backend calculator;
+        calculator.memoryRecall();
+        QCOMPARE(calculator.display(), QStringLiteral("42"));
+    }
+
+    void remembersAcrossLaunches() {
+        Backend calculator;
+        press(calculator, "4 2 =");
+        calculator.memoryAdd();
+        QSettings().sync();
+
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert(QStringLiteral("OMACALC_SETTINGS_DIR"), m_settingsDirectory.path());
+        QProcess child;
+        child.setProcessEnvironment(env);
+        child.start(QCoreApplication::applicationFilePath(),
+                    {QStringLiteral("recallsMemoryFromDisk")});
+        QVERIFY(child.waitForStarted());
+        QVERIFY(child.waitForFinished(20000));
+        QCOMPARE(child.exitCode(), 0);
     }
 
     void evaluatesTokens() {
