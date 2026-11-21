@@ -234,27 +234,48 @@ void Backend::pressOperator(const QString &pretty) {
     }
 }
 
+// Pressing = again repeats the last operation on the result, so 1000 × 2 = =
+// gives 4000. The last operator and its operand are what repeat, whatever came
+// before them: 2 + 3 × 4 = = is 14 × 4.
 void Backend::pressEquals() {
-    if (m_errored || m_justEvaluated)
+    if (m_errored)
         return;
 
-    QStringList finalTokens = m_tokens;
-    if (!m_entry.isEmpty())
-        finalTokens << sealNumber(m_entry);
-    while (!finalTokens.isEmpty() && isOperator(finalTokens.last()))
-        finalTokens.removeLast();
-    if (finalTokens.isEmpty())
-        return;
+    QStringList finalTokens;
+    if (m_justEvaluated) {
+        if (m_repeatOperator.isEmpty())
+            return;
+        // The exact result, as chaining uses, so 1 ÷ 3 = = = stays exact.
+        finalTokens << QString::number(m_resultValue, 'g', 17)
+                    << m_repeatOperator << m_repeatOperand;
+    } else {
+        finalTokens = m_tokens;
+        if (!m_entry.isEmpty())
+            finalTokens << sealNumber(m_entry);
+        while (!finalTokens.isEmpty() && isOperator(finalTokens.last()))
+            finalTokens.removeLast();
+        if (finalTokens.isEmpty())
+            return;
+    }
+
+    const QString repeatOperator = finalTokens.size() >= 3
+        ? finalTokens.at(finalTokens.size() - 2) : QString();
+    const QString repeatOperand = finalTokens.size() >= 3 ? finalTokens.last() : QString();
 
     m_evaluatedExpression = prettyExpression(finalTokens);
     bool ok = false;
     const double value = evaluateTokens(finalTokens, &ok);
     if (!ok) {
         m_errored = true;
+        m_justEvaluated = false;
+        m_repeatOperator.clear();
+        m_repeatOperand.clear();
     } else {
         m_resultValue = value;
         m_result = formatNumber(value);
         m_justEvaluated = true;
+        m_repeatOperator = repeatOperator;
+        m_repeatOperand = repeatOperand;
     }
     m_tokens.clear();
     m_entry.clear();
@@ -361,6 +382,8 @@ void Backend::clearEvaluation() {
     m_resultValue = 0;
     m_evaluatedExpression.clear();
     m_justEvaluated = false;
+    m_repeatOperator.clear();
+    m_repeatOperand.clear();
 }
 
 double Backend::evaluateTokens(const QStringList &tokens, bool *ok) {
