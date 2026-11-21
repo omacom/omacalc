@@ -73,6 +73,10 @@ private:
     QString m_result;
     double m_resultValue = 0;
     QString m_evaluatedExpression;
+    // The last operator and operand of the evaluated expression, which a
+    // repeated = applies to the result again.
+    QString m_repeatOperator;
+    QString m_repeatOperand;
     bool m_justEvaluated = false;
     bool m_errored = false;
 

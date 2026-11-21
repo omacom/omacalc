@@ -259,6 +259,93 @@ private slots:
         QCOMPARE(calculator.expression(), QString());
     }
 
+    void repeatsTheLastOperationOnEquals() {
+        Backend calculator;
+        press(calculator, "1 0 0 0 × 2 =");
+        QCOMPARE(calculator.display(), QStringLiteral("2,000"));
+        press(calculator, "=");
+        QCOMPARE(calculator.display(), QStringLiteral("4,000"));
+        QCOMPARE(calculator.expression(), QStringLiteral("2,000 × 2"));
+        press(calculator, "=");
+        QCOMPARE(calculator.display(), QStringLiteral("8,000"));
+
+        press(calculator, "clear 1 0 - 3 = = =");
+        QCOMPARE(calculator.display(), QStringLiteral("1"));
+        QCOMPARE(calculator.expression(), QStringLiteral("4 − 3"));
+
+        press(calculator, "clear 8 1 ÷ 3 = =");
+        QCOMPARE(calculator.display(), QStringLiteral("9"));
+
+        press(calculator, "clear 2 ^ 2 = =");
+        QCOMPARE(calculator.display(), QStringLiteral("16"));
+
+        // Only the last operator and its operand repeat.
+        press(calculator, "clear 2 + 3 × 4 = =");
+        QCOMPARE(calculator.display(), QStringLiteral("56"));
+        QCOMPARE(calculator.expression(), QStringLiteral("14 × 4"));
+
+        // A percent operand repeats as the amount it worked out to.
+        press(calculator, "clear 2 0 0 + 1 0 % = =");
+        QCOMPARE(calculator.display(), QStringLiteral("240"));
+
+        press(calculator, "clear 5 + 2 sign = =");
+        QCOMPARE(calculator.display(), QStringLiteral("1"));
+
+        // Repeating works from the exact result, not the rounded display.
+        press(calculator, "clear 1 ÷ 3 = = × 9 =");
+        QCOMPARE(calculator.display(), QStringLiteral("1"));
+
+        // Chaining after a repeat continues from the latest result, and the
+        // new operation is the one that repeats.
+        press(calculator, "clear 3 × 2 = = + 1 = =");
+        QCOMPARE(calculator.display(), QStringLiteral("14"));
+        QCOMPARE(calculator.expression(), QStringLiteral("13 + 1"));
+    }
+
+    void repeatsNothingWithoutAnOperation() {
+        Backend calculator;
+        press(calculator, "7 = =");
+        QCOMPARE(calculator.display(), QStringLiteral("7"));
+        QCOMPARE(calculator.expression(), QStringLiteral("7"));
+
+        // A dropped trailing operator leaves nothing to repeat.
+        press(calculator, "clear 9 + = =");
+        QCOMPARE(calculator.display(), QStringLiteral("9"));
+
+        // A new number after = is a new calculation with nothing to repeat.
+        press(calculator, "clear 6 × 2 = 5 = =");
+        QCOMPARE(calculator.display(), QStringLiteral("5"));
+
+        // Clear forgets the operation.
+        press(calculator, "clear 6 × 2 = clear = =");
+        QCOMPARE(calculator.display(), QStringLiteral("0"));
+
+        // Editing the result starts over from it, without the operation.
+        press(calculator, "clear 6 × 2 = sign = =");
+        QCOMPARE(calculator.display(), QStringLiteral("-12"));
+        press(calculator, "clear 1 2 3 × 2 = backspace = =");
+        QCOMPARE(calculator.display(), QStringLiteral("24"));
+        press(calculator, "clear 5 0 + 5 0 = % = =");
+        QCOMPARE(calculator.display(), QStringLiteral("1"));
+    }
+
+    void repeatingIntoAnErrorStops() {
+        Backend calculator;
+
+        // A repeat that overflows errors like any calculation, and further
+        // presses of = leave the error alone.
+        press(calculator, "1 0 ^ 3 0 0 = × 1 0 0 0 0 0 =");
+        QCOMPARE(calculator.display(), QStringLiteral("1e+305"));
+        press(calculator, "=");
+        QCOMPARE(calculator.display(), QStringLiteral("Error"));
+        QCOMPARE(calculator.expression(), QStringLiteral("1e+305 × 100,000"));
+        press(calculator, "=");
+        QCOMPARE(calculator.display(), QStringLiteral("Error"));
+        QCOMPARE(calculator.display(), QStringLiteral("Error"));
+        press(calculator, "5");
+        QCOMPARE(calculator.display(), QStringLiteral("5"));
+    }
+
     void replacesDanglingOperator() {
         Backend calculator;
         press(calculator, "4 + × 2 =");

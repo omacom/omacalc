@@ -18,6 +18,10 @@ with the result after `=`, so `42 × 3 + 7` reads back exactly as it was entered
 From the keyboard, `^` raises to a power ahead of everything else, so
 `2 × 3 ^ 2` gives `18`.
 
+Pressing `=` again repeats the last operation on the result, so
+`1000 × 2 = =` gives `4000` and each further `=` doubles it again. The last
+operator and its number are what repeat: `2 + 3 × 4 = =` is `14 × 4`.
+
 Numbers are grouped with thousands separators as you type, in the display and
 the expression line alike, so `1234567.89` reads as `1,234,567.89`. The
 fraction is left ungrouped.
