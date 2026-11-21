@@ -383,6 +383,69 @@ private slots:
         QCOMPARE(again.display(), QStringLiteral("1"));
     }
 
+    void recallsMemoryIntoPendingCalculations() {
+        Backend calculator;
+        calculator.memoryClear();
+        press(calculator, "4 2 =");
+        calculator.memoryAdd();
+        press(calculator, "clear 2 + 9");
+        calculator.memoryRecall();
+        QCOMPARE(calculator.expression(), QStringLiteral("2 +"));
+        QCOMPARE(calculator.display(), QStringLiteral("42"));
+        press(calculator, "=");
+        QCOMPARE(calculator.display(), QStringLiteral("44"));
+
+        press(calculator, "clear 2 +");
+        calculator.memoryRecall();
+        press(calculator, "× 3 =");
+        QCOMPARE(calculator.display(), QStringLiteral("128"));
+
+        calculator.memoryClear();
+        press(calculator, "clear 1 0 ^ 1 5 + 1 =");
+        calculator.memoryAdd();
+        press(calculator, "clear 1 +");
+        calculator.memoryRecall();
+        QCOMPARE(calculator.display(), QStringLiteral("1e+15"));
+        press(calculator, "- 1 0 ^ 1 5 =");
+        QCOMPARE(calculator.display(), QStringLiteral("2"));
+
+        press(calculator, "clear 2 +");
+        calculator.memoryRecall();
+        press(calculator, "backspace 3 =");
+        QCOMPARE(calculator.display(), QStringLiteral("5"));
+        calculator.memoryClear();
+    }
+
+    void ignoredDecimalPreservesRecalledPrecision() {
+        Backend calculator;
+        calculator.memoryClear();
+        press(calculator, "1 ÷ 3 =");
+        calculator.memoryAdd();
+        press(calculator, "clear");
+        calculator.memoryRecall();
+        QCOMPARE(calculator.display(), QStringLiteral("0.333333333333333"));
+        press(calculator, ".");
+        QCOMPARE(calculator.display(), QStringLiteral("0.333333333333333"));
+        press(calculator, "× 3 =");
+        QCOMPARE(calculator.display(), QStringLiteral("1"));
+        calculator.memoryClear();
+    }
+
+    void ignoredDigitPreservesRecalledPrecision() {
+        Backend calculator;
+        calculator.memoryClear();
+        press(calculator, "1 0 ^ 1 4 + . 2 5 =");
+        calculator.memoryAdd();
+        press(calculator, "clear");
+        calculator.memoryRecall();
+        QCOMPARE(calculator.display(), QStringLiteral("100,000,000,000,000"));
+        press(calculator, "9");
+        QCOMPARE(calculator.display(), QStringLiteral("100,000,000,000,000"));
+        press(calculator, "- 1 0 ^ 1 4 =");
+        QCOMPARE(calculator.display(), QStringLiteral("0.25"));
+        calculator.memoryClear();
+    }
+
     void recallsMemoryFromDisk() {
         if (qEnvironmentVariableIsEmpty("OMACALC_SETTINGS_DIR"))
             QSKIP("started by remembersAcrossLaunches");
@@ -393,6 +456,7 @@ private slots:
 
     void remembersAcrossLaunches() {
         Backend calculator;
+        calculator.memoryClear();
         press(calculator, "4 2 =");
         calculator.memoryAdd();
         QSettings().sync();

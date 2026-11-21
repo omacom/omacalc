@@ -123,7 +123,8 @@ QString Backend::prettyExpression(const QStringList &tokens) {
 // operand the last operator was applied to, or the fresh-start zero.
 QString Backend::currentValue() const {
     if (!m_entry.isEmpty())
-        return sealNumber(m_entry);
+        return m_recalledValue ? QString::number(*m_recalledValue, 'g', 17)
+                               : sealNumber(m_entry);
     for (int i = m_tokens.size() - 1; i >= 0; --i) {
         if (!isOperator(m_tokens.at(i)))
             return m_tokens.at(i);
@@ -132,7 +133,9 @@ QString Backend::currentValue() const {
 }
 
 void Backend::pressKey(const QString &key) {
-    if (key.size() == 1 && key.at(0).isDigit()) {
+    const QString previousEntry = m_entry;
+    const bool digit = key.size() == 1 && key.at(0).isDigit();
+    if (digit) {
         pressDigit(key);
     } else if (key == QStringLiteral(".")) {
         pressDecimal();
@@ -160,6 +163,10 @@ void Backend::pressKey(const QString &key) {
         return;
     }
 
+    // A rejected digit or decimal does not edit the recalled operand.
+    // Other keys consume or replace it through their normal arithmetic path.
+    if ((!digit && key != QStringLiteral(".")) || m_entry != previousEntry)
+        m_recalledValue.reset();
     emit calculationChanged();
 }
 
@@ -225,7 +232,7 @@ void Backend::pressOperator(const QString &pretty) {
     }
 
     if (!m_entry.isEmpty()) {
-        m_tokens << sealNumber(m_entry) << pretty;
+        m_tokens << currentValue() << pretty;
         m_entry.clear();
     } else if (m_tokens.isEmpty()) {
         m_tokens << QStringLiteral("0") << pretty;
@@ -242,7 +249,7 @@ void Backend::pressEquals() {
 
     QStringList finalTokens = m_tokens;
     if (!m_entry.isEmpty())
-        finalTokens << sealNumber(m_entry);
+        finalTokens << currentValue();
     while (!finalTokens.isEmpty() && isOperator(finalTokens.last()))
         finalTokens.removeLast();
     if (finalTokens.isEmpty())
@@ -343,6 +350,7 @@ void Backend::pressBackspace() {
 }
 
 void Backend::pressClear() {
+    m_recalledValue.reset();
     m_tokens.clear();
     m_entry.clear();
     clearEvaluation();
@@ -497,12 +505,12 @@ void Backend::memoryRecall() {
     });
     if (!haveValue)
         return;
-    // Same path as equals: the display is rounded, and a following operator
-    // chains from the exact double rather than from that text.
-    pressClear();
-    m_resultValue = value;
-    m_result = formatNumber(value);
-    m_justEvaluated = true;
+    if (m_errored || m_justEvaluated)
+        pressClear();
+    // Recall replaces only the operand; arithmetic keeps its exact value
+    // until a key edits the displayed digits.
+    m_entry = formatNumber(value);
+    m_recalledValue = value;
     emit calculationChanged();
 }
 
@@ -568,6 +576,7 @@ void Backend::pasteNumber() {
     if (m_errored || m_justEvaluated)
         pressClear();
     m_entry = formatNumber(value);
+    m_recalledValue.reset();
     emit calculationChanged();
 }
 

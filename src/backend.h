@@ -6,6 +6,7 @@
 #include <QStringList>
 #include <QVariantMap>
 #include <functional>
+#include <optional>
 
 class QSettings;
 
@@ -78,6 +79,7 @@ private:
 
     QStringList m_tokens;
     QString m_entry;
+    std::optional<double> m_recalledValue;
     QString m_result;
     double m_resultValue = 0;
     QString m_evaluatedExpression;
