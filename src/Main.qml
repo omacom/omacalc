@@ -50,6 +50,24 @@ ApplicationWindow {
     }
 
     Shortcut {
+        sequences: ["Ctrl+M", "Meta+M"]
+        context: Qt.ApplicationShortcut
+        onActivated: backend.memoryAdd()
+    }
+
+    Shortcut {
+        sequences: ["Ctrl+R", "Meta+R"]
+        context: Qt.ApplicationShortcut
+        onActivated: backend.memoryRecall()
+    }
+
+    Shortcut {
+        sequences: ["Ctrl+Shift+M", "Meta+Shift+M"]
+        context: Qt.ApplicationShortcut
+        onActivated: backend.memoryClear()
+    }
+
+    Shortcut {
         sequence: "Ctrl+Q"
         context: Qt.ApplicationShortcut
         onActivated: win.close()

@@ -3,6 +3,8 @@
 #include <QElapsedTimer>
 #include <QGuiApplication>
 #include <QJsonDocument>
+#include <QProcess>
+#include <QProcessEnvironment>
 #include <QJsonObject>
 #include <QRect>
 #include <QSettings>
@@ -26,8 +28,13 @@ class OmacalcTest : public QObject {
 
 private slots:
     void initTestCase() {
-        QVERIFY(m_settingsDirectory.isValid());
         QSettings::setDefaultFormat(QSettings::IniFormat);
+        const QString shared = qEnvironmentVariable("OMACALC_SETTINGS_DIR");
+        if (!shared.isEmpty()) {
+            QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, shared);
+            return;
+        }
+        QVERIFY(m_settingsDirectory.isValid());
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
                            m_settingsDirectory.path());
     }
@@ -338,6 +345,131 @@ private slots:
         QCOMPARE(Backend::groupDigits(QStringLiteral("0.123456")), QStringLiteral("0.123456"));
         QCOMPARE(Backend::groupDigits(QStringLiteral("1.5e+20")), QStringLiteral("1.5e+20"));
         QCOMPARE(Backend::groupDigits(QStringLiteral("Error")), QStringLiteral("Error"));
+    }
+
+    void remembersARunningTotal() {
+        Backend calculator;
+        press(calculator, "2 0 0 + 5 0 =");
+        calculator.memoryAdd();
+        press(calculator, "clear 1 0");
+        calculator.memoryAdd();
+        calculator.memoryRecall();
+        QCOMPARE(calculator.display(), QStringLiteral("260"));
+        press(calculator, "+ 1 =");
+        QCOMPARE(calculator.display(), QStringLiteral("261"));
+
+        Backend again;
+        again.memoryRecall();
+        QCOMPARE(again.display(), QStringLiteral("260"));
+        again.memoryClear();
+        again.memoryRecall();
+        QCOMPARE(again.display(), QStringLiteral("0"));
+
+        press(again, "clear 1 0 ^ 3 0 8 =");
+        again.memoryAdd();
+        again.memoryAdd();
+        press(again, "clear");
+        again.memoryRecall();
+        QCOMPARE(again.display(), QStringLiteral("1e+308"));
+
+        // 10^15 + 1 does not fit in the 15-digit display, but subtracting
+        // 10^15 after a recall must still leave 1.
+        press(again, "clear");
+        again.memoryClear();
+        press(again, "1 0 ^ 1 5 + 1 =");
+        again.memoryAdd();
+        again.memoryRecall();
+        press(again, "- 1 0 ^ 1 5 =");
+        QCOMPARE(again.display(), QStringLiteral("1"));
+    }
+
+    void recallsMemoryIntoPendingCalculations() {
+        Backend calculator;
+        calculator.memoryClear();
+        press(calculator, "4 2 =");
+        calculator.memoryAdd();
+        press(calculator, "clear 2 + 9");
+        calculator.memoryRecall();
+        QCOMPARE(calculator.expression(), QStringLiteral("2 +"));
+        QCOMPARE(calculator.display(), QStringLiteral("42"));
+        press(calculator, "=");
+        QCOMPARE(calculator.display(), QStringLiteral("44"));
+
+        press(calculator, "clear 2 +");
+        calculator.memoryRecall();
+        press(calculator, "× 3 =");
+        QCOMPARE(calculator.display(), QStringLiteral("128"));
+
+        calculator.memoryClear();
+        press(calculator, "clear 1 0 ^ 1 5 + 1 =");
+        calculator.memoryAdd();
+        press(calculator, "clear 1 +");
+        calculator.memoryRecall();
+        QCOMPARE(calculator.display(), QStringLiteral("1e+15"));
+        press(calculator, "- 1 0 ^ 1 5 =");
+        QCOMPARE(calculator.display(), QStringLiteral("2"));
+
+        press(calculator, "clear 2 +");
+        calculator.memoryRecall();
+        press(calculator, "backspace 3 =");
+        QCOMPARE(calculator.display(), QStringLiteral("5"));
+        calculator.memoryClear();
+    }
+
+    void ignoredDecimalPreservesRecalledPrecision() {
+        Backend calculator;
+        calculator.memoryClear();
+        press(calculator, "1 ÷ 3 =");
+        calculator.memoryAdd();
+        press(calculator, "clear");
+        calculator.memoryRecall();
+        QCOMPARE(calculator.display(), QStringLiteral("0.333333333333333"));
+        press(calculator, ".");
+        QCOMPARE(calculator.display(), QStringLiteral("0.333333333333333"));
+        press(calculator, "× 3 =");
+        QCOMPARE(calculator.display(), QStringLiteral("1"));
+        calculator.memoryClear();
+    }
+
+    void ignoredDigitPreservesRecalledPrecision() {
+        Backend calculator;
+        calculator.memoryClear();
+        press(calculator, "1 0 ^ 1 4 + . 2 5 =");
+        calculator.memoryAdd();
+        press(calculator, "clear");
+        calculator.memoryRecall();
+        QCOMPARE(calculator.display(), QStringLiteral("100,000,000,000,000"));
+        press(calculator, "9");
+        QCOMPARE(calculator.display(), QStringLiteral("100,000,000,000,000"));
+        press(calculator, "- 1 0 ^ 1 4 =");
+        QCOMPARE(calculator.display(), QStringLiteral("0.25"));
+        calculator.memoryClear();
+    }
+
+    void recallsMemoryFromDisk() {
+        if (qEnvironmentVariableIsEmpty("OMACALC_SETTINGS_DIR"))
+            QSKIP("started by remembersAcrossLaunches");
+        Backend calculator;
+        calculator.memoryRecall();
+        QCOMPARE(calculator.display(), QStringLiteral("42"));
+    }
+
+    void remembersAcrossLaunches() {
+        Backend calculator;
+        calculator.memoryClear();
+        press(calculator, "4 2 =");
+        calculator.memoryAdd();
+        QSettings().sync();
+
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert(QStringLiteral("OMACALC_SETTINGS_DIR"), m_settingsDirectory.path());
+        QProcess child;
+        child.setProcessEnvironment(env);
+        child.start(QCoreApplication::applicationFilePath(),
+                    {QStringLiteral("recallsMemoryFromDisk")});
+        QVERIFY(child.waitForStarted());
+        QVERIFY(child.waitForFinished(20000));
+        QCOMPARE(child.exitCode(), 0);
     }
 
     void evaluatesTokens() {

@@ -4,8 +4,10 @@
 #include <QColor>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QLocale>
+#include <QLockFile>
 #include <QRegularExpression>
 #include <QSettings>
 #include <QTextStream>
@@ -121,7 +123,8 @@ QString Backend::prettyExpression(const QStringList &tokens) {
 // operand the last operator was applied to, or the fresh-start zero.
 QString Backend::currentValue() const {
     if (!m_entry.isEmpty())
-        return sealNumber(m_entry);
+        return m_recalledValue ? QString::number(*m_recalledValue, 'g', 17)
+                               : sealNumber(m_entry);
     for (int i = m_tokens.size() - 1; i >= 0; --i) {
         if (!isOperator(m_tokens.at(i)))
             return m_tokens.at(i);
@@ -130,7 +133,9 @@ QString Backend::currentValue() const {
 }
 
 void Backend::pressKey(const QString &key) {
-    if (key.size() == 1 && key.at(0).isDigit()) {
+    const QString previousEntry = m_entry;
+    const bool digit = key.size() == 1 && key.at(0).isDigit();
+    if (digit) {
         pressDigit(key);
     } else if (key == QStringLiteral(".")) {
         pressDecimal();
@@ -158,6 +163,10 @@ void Backend::pressKey(const QString &key) {
         return;
     }
 
+    // A rejected digit or decimal does not edit the recalled operand.
+    // Other keys consume or replace it through their normal arithmetic path.
+    if ((!digit && key != QStringLiteral(".")) || m_entry != previousEntry)
+        m_recalledValue.reset();
     emit calculationChanged();
 }
 
@@ -223,7 +232,7 @@ void Backend::pressOperator(const QString &pretty) {
     }
 
     if (!m_entry.isEmpty()) {
-        m_tokens << sealNumber(m_entry) << pretty;
+        m_tokens << currentValue() << pretty;
         m_entry.clear();
     } else if (m_tokens.isEmpty()) {
         m_tokens << QStringLiteral("0") << pretty;
@@ -240,7 +249,7 @@ void Backend::pressEquals() {
 
     QStringList finalTokens = m_tokens;
     if (!m_entry.isEmpty())
-        finalTokens << sealNumber(m_entry);
+        finalTokens << currentValue();
     while (!finalTokens.isEmpty() && isOperator(finalTokens.last()))
         finalTokens.removeLast();
     if (finalTokens.isEmpty())
@@ -341,6 +350,7 @@ void Backend::pressBackspace() {
 }
 
 void Backend::pressClear() {
+    m_recalledValue.reset();
     m_tokens.clear();
     m_entry.clear();
     clearEvaluation();
@@ -452,6 +462,64 @@ QString Backend::formatNumber(double value) {
     return QString::number(value, 'g', 15);
 }
 
+// One lock covers the whole read-modify-write, so two windows cannot each
+// add onto the same saved total and then overwrite each other.
+bool Backend::withMemory(const std::function<void(QSettings &)> &change) {
+    QSettings settings;
+    QDir().mkpath(QFileInfo(settings.fileName()).path());
+    // Qt already locks "<settings>.lock" inside sync(), so this name has to differ.
+    QLockFile lock(settings.fileName() + QStringLiteral(".memory.lock"));
+    lock.setStaleLockTime(3000);
+    if (!lock.tryLock(2000))
+        return false;
+    settings.sync();
+    change(settings);
+    settings.sync();
+    return true;
+}
+
+void Backend::memoryAdd() {
+    bool ok = false;
+    const double value = m_justEvaluated
+        ? m_resultValue
+        : QLocale::c().toDouble(currentValue(), &ok);
+    if (m_justEvaluated)
+        ok = std::isfinite(m_resultValue);
+    if (!ok || !std::isfinite(value))
+        return;
+    withMemory([value](QSettings &settings) {
+        // An overflowed total could never be recalled, only cleared.
+        const double total = settings.value(QStringLiteral("memory"), 0).toDouble() + value;
+        if (!std::isfinite(total))
+            return;
+        settings.setValue(QStringLiteral("memory"), total);
+    });
+}
+
+void Backend::memoryRecall() {
+    double value = 0;
+    bool haveValue = false;
+    withMemory([&](QSettings &settings) {
+        value = settings.value(QStringLiteral("memory"), 0).toDouble();
+        haveValue = std::isfinite(value);
+    });
+    if (!haveValue)
+        return;
+    if (m_errored || m_justEvaluated)
+        pressClear();
+    // Recall replaces only the operand; arithmetic keeps its exact value
+    // until a key edits the displayed digits.
+    m_entry = formatNumber(value);
+    m_recalledValue = value;
+    emit calculationChanged();
+}
+
+void Backend::memoryClear() {
+    withMemory([](QSettings &settings) {
+        settings.setValue(QStringLiteral("memory"), 0);
+    });
+}
+
 // Separates the whole-number digits into groups of three with commas, so
 // 1234567.891 reads as 1,234,567.891. Only presentation goes through here:
 // tokens, entries, and results stay plain so parsing and chaining never see a
@@ -508,6 +576,7 @@ void Backend::pasteNumber() {
     if (m_errored || m_justEvaluated)
         pressClear();
     m_entry = formatNumber(value);
+    m_recalledValue.reset();
     emit calculationChanged();
 }
 
