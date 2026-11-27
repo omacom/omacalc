@@ -197,12 +197,11 @@ Outcome classify(const Enclosure &e) {
     return outcome;
 }
 
-// The backend rounds a result whose numerator or denominator outgrows
-// kExactBits; allow it from half that, so the model never depends on exactly
-// where that line is drawn.
+// The backend may round a result of exact numbers only when its numerator or
+// denominator outgrows kExactBits; anything that fits must come out exact.
 Outcome settle(Enclosure raw, bool mayRound) {
     if (!mayRound && raw.isExact()
-            && std::max(bits(raw.lo.get_num()), bits(raw.lo.get_den())) > long(kExactBits / 2))
+            && std::max(bits(raw.lo.get_num()), bits(raw.lo.get_den())) > long(kExactBits))
         mayRound = true;
     if (mayRound)
         raw = widen(raw);
@@ -291,9 +290,12 @@ Outcome exactWholePower(const mpq_class &x, const mpz_class &n) {
     if (abs(x) == 1)
         return succeedExactly(x > 0 || mpz_even_p(n.get_mpz_t()) ? 1 : -1);
 
-    const long widest = std::max(bits(x.get_num()), bits(x.get_den()));
+    // Big enough to cover every power whose fraction fits kExactBits, which
+    // must come out exact. Divided rather than multiplied: 2 ^ 2 ^ 63 would
+    // wrap 2^63 × 2 to zero.
+    const unsigned long widest = std::max(bits(x.get_num()), bits(x.get_den()));
     const mpz_class count = abs(n);
-    if (count.fits_ulong_p() && count.get_ui() * widest <= 4 * kExactBits) {
+    if (count.fits_ulong_p() && count.get_ui() <= 4 * kExactBits / widest) {
         mpz_class numerator;
         mpz_class denominator;
         mpz_pow_ui(numerator.get_mpz_t(), x.get_num_mpz_t(), count.get_ui());
@@ -404,9 +406,20 @@ bool exponentForm(const QString &entry) {
     return entry.contains(QLatin1Char('e'));
 }
 
+// A fraction in full when it is short, and by its size when a failure
+// message would otherwise run to thousands of digits.
+QString fraction(const mpq_class &value) {
+    const std::string full = value.get_str();
+    if (full.size() <= 80)
+        return QString::fromStdString(full);
+    return QStringLiteral("a fraction of %1 over %2 bits")
+        .arg(bits(value.get_num()))
+        .arg(bits(value.get_den()));
+}
+
 QString describe(const Enclosure &e) {
     if (e.isExact())
-        return QString::fromStdString(e.lo.get_str()) + QStringLiteral(" = ") + format(e.lo);
+        return fraction(e.lo) + QStringLiteral(" = ") + format(e.lo);
     return QStringLiteral("[") + format(e.lo) + QStringLiteral(", ") + format(e.hi)
         + QStringLiteral("]");
 }
@@ -948,7 +961,7 @@ QString Calculator::check(const QString &display, const QString &expression,
         if (!value)
             return QStringLiteral("holds no value, expected ") + describe(expected);
         if (!expected.contains(*value))
-            return QStringLiteral("holds ") + QString::fromStdString(value->get_str())
+            return QStringLiteral("holds ") + fraction(*value) + QStringLiteral(" = ") + format(*value)
                 + QStringLiteral(", outside ") + describe(expected);
     }
     return {};

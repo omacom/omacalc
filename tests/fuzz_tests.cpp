@@ -4,6 +4,7 @@
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QtTest>
+#include <cmath>
 #include <optional>
 #include <random>
 
@@ -152,7 +153,7 @@ public:
                 "123456789012345", "0.333333333333333", "0.666666666666667", "1.00000000000001",
                 "99999999999999.9", "13373.54", "13438.77", "1000000.1", "0.000000000000001",
                 "12", "60", "365", "1.05", "0.05", "19.99", "4.35", "1.0001", "1.001", "0.999",
-                "1.01", "0.9999", "1.15"};
+                "1.01", "0.9999", "1.15", "1.5", "2.5", "0.75"};
             text = memorable.at(below(memorable.size()));
             break;
         }
@@ -182,7 +183,28 @@ public:
             "54321", "-12345", "77777"};
         if (chance(0.15))
             return number();
+        if (chance(0.1))
+            return exactnessBoundary();
         return exponents.at(below(exponents.size()));
+    }
+
+    // An exponent near where the number typed last, raised to it, stops
+    // fitting the backend's exact fractions: just inside, just outside, and
+    // either side of where a quick bit-count estimate would put that line.
+    QString exactnessBoundary() {
+        const std::optional<mpq_class> base = reference::parse(m_last);
+        if (!base || *base == 0 || abs(*base) == 1)
+            return QStringLiteral("32769");
+        const mpz_class numerator = abs(base->get_num());
+        const mpz_class &wider = numerator > base->get_den() ? numerator : base->get_den();
+        long exponent = 0;
+        const double mantissa = mpz_get_d_2exp(&exponent, wider.get_mpz_t());
+        const double log2 = double(exponent) + std::log2(mantissa);
+        const double widest = double(mpz_sizeinbase(wider.get_mpz_t(), 2));
+        const double limit = double(Number::kMaxExactBits);
+        const double lines[] = {limit / log2, limit / widest, 2 * limit / widest};
+        const long n = long(lines[below(3)]) + below(7) - 3;
+        return QString::number(std::max(n, 2L));
     }
 
     QString pasteText() {
@@ -501,6 +523,9 @@ private slots:
              Generator::key("^"), Action{Action::Paste, "1e45"}, Generator::key("=")},
             {Action{Action::Paste, "0.333333333333333333333333333333333333333"},
              Generator::key("^"), Action{Action::Paste, "123456.789"}, Generator::key("=")},
+            // 2^63 times the base's 2 bits wraps a 64-bit size check to 0.
+            {Generator::key("2"), Generator::key("^"), Generator::key("2"), Generator::key("^"),
+             Generator::key("6"), Generator::key("3"), Generator::key("=")},
         };
         QList<Action> squaring = {Generator::key("7"), Generator::key("÷"), Generator::key("3"),
                                   Generator::key("=")};
