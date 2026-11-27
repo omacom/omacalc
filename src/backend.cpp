@@ -77,17 +77,14 @@ bool nthRoot(double radicand, double index, double *root) {
     if (negative && (std::floor(index) != index || std::fmod(index, 2.0) == 0))
         return false;
 
-    // pow raises to 1 ÷ index, which is itself rounded, so the cube root of 64
-    // comes out as 3.9999999999999996 and 64 √ 3 − 4 would not be zero. Take
-    // the whole number instead when it is the exact root.
-    const double magnitude = std::fabs(radicand);
-    const double degree = std::fabs(index);
-    double result = std::pow(magnitude, 1.0 / degree);
-    const double whole = std::round(result);
-    if (std::pow(whole, degree) == magnitude)
-        result = whole;
-    if (index < 0)
-        result = 1.0 / result;
+    // 1 ÷ index is itself rounded, so in double the cube root of 64 comes out
+    // as 3.9999999999999996 and 64 √ 3 − 4 is not zero. Work in long double
+    // and round once at the end, the way a calculator carries guard digits:
+    // the extra bits land every exact root on the right double, and the wider
+    // exponent range keeps a tiny answer like 1e155 √ −0.5 from overflowing
+    // on the way.
+    double result = static_cast<double>(
+        std::pow(static_cast<long double>(std::fabs(radicand)), 1.0L / index));
     if (negative)
         result = -result;
 

@@ -95,12 +95,18 @@ private slots:
         press(calculator, "clear 3 ^ 2 + 4 ^ 2 = √ 2 =");
         QCOMPARE(calculator.display(), QStringLiteral("5"));
 
-        // pow alone leaves these a hair off the whole number, which shows the
-        // moment the root is subtracted again or chained from.
+        // pow in double leaves these a hair off the exact root, whole or not,
+        // which shows the moment the root is subtracted again or chained from.
         press(calculator, "clear 6 4 √ 3 - 4 =");
         QCOMPARE(calculator.display(), QStringLiteral("0"));
 
         press(calculator, "clear 3 1 2 5 √ 5 = - 5 =");
+        QCOMPARE(calculator.display(), QStringLiteral("0"));
+
+        press(calculator, "clear 4 2 . 8 7 5 √ 3 - 3 . 5 =");
+        QCOMPARE(calculator.display(), QStringLiteral("0"));
+
+        press(calculator, "clear 2 7 √ 1 . 5 - 9 =");
         QCOMPARE(calculator.display(), QStringLiteral("0"));
 
         // √ sits with ^, ahead of × and ÷, and folds right-to-left with it.
@@ -127,6 +133,9 @@ private slots:
 
         press(calculator, "clear 4 √ 2 sign =");
         QCOMPARE(calculator.display(), QStringLiteral("0.5"));
+
+        press(calculator, "clear 1 0 0 0 √ 3 sign - 0 . 1 =");
+        QCOMPARE(calculator.display(), QStringLiteral("0"));
 
         press(calculator, "clear 9 √ 0 =");
         QCOMPARE(calculator.display(), QStringLiteral("Error"));
@@ -421,6 +430,13 @@ private slots:
 
         Backend::evaluateTokens({"-4", "√", "2"}, &ok);
         QVERIFY(!ok);
+
+        // 1e155 √ −0.5 is 1e155 ^ −2, about 1e-310: tiny, but still a double,
+        // so it must not come out as zero. QCOMPARE would let a zero through,
+        // as it reads any expected value this small as zero.
+        const double tiny = Backend::evaluateTokens({"1e155", "√", "-0.5"}, &ok);
+        QVERIFY(ok);
+        QVERIFY(std::fabs(tiny / 1e-310 - 1) < 1e-9);
 
         Backend::evaluateTokens({"2", "+"}, &ok);
         QVERIFY(!ok);
