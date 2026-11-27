@@ -33,3 +33,10 @@ add_executable(omacalc_tests tests/omacalc_tests.cpp)
 target_link_libraries(omacalc_tests PRIVATE omacalc_core Qt6::Test)
 add_test(NAME omacalc_tests COMMAND omacalc_tests)
 set_tests_properties(omacalc_tests PROPERTIES ENVIRONMENT QT_QPA_PLATFORM=offscreen)
+
+# Random calculations held against an independent model; see the top of
+# tests/fuzz_tests.cpp for running it longer.
+add_executable(omacalc_fuzz tests/fuzz_tests.cpp tests/reference.cpp tests/reference.h)
+target_link_libraries(omacalc_fuzz PRIVATE omacalc_core Qt6::Test)
+add_test(NAME omacalc_fuzz COMMAND omacalc_fuzz)
+set_tests_properties(omacalc_fuzz PROPERTIES ENVIRONMENT QT_QPA_PLATFORM=offscreen)

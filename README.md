@@ -63,3 +63,5 @@ IBM Plex, copyright IBM Corp.
 ## Development
 
 `bin/build` compiles `build/omacalc` with CMake, and `bin/test` builds and runs the tests offscreen. Building needs `cmake`, `make`, `pkgconf`, and a C++ compiler on top of the packages above. The package itself is built in [omarchy-pkgs](https://github.com/omacom/omarchy-pkgs/tree/master/pkgbuilds/omacalc).
+
+The tests include a fuzzer, `build/omacalc_fuzz`, that types thousands of random calculations and checks every key against an independent model of the calculator. For a longer run with fresh calculations, set `OMACALC_FUZZ_SEQUENCES=1000000 OMACALC_FUZZ_SEED=$RANDOM`.
