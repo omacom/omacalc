@@ -92,7 +92,9 @@ ApplicationWindow {
                 backend.pressKey("clear");
             } else if (event.text === "x" || event.text === "X") {
                 backend.pressKey("*");
-            } else if (/^[0-9+\-*/%^]$/.test(event.text)) {
+            } else if (event.text === "r" || event.text === "R") {
+                backend.pressKey("√");
+            } else if (/^[0-9+\-*/%^√]$/.test(event.text)) {
                 backend.pressKey(event.text);
             } else {
                 return;

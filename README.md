@@ -16,7 +16,9 @@ precedence (`×` and `÷` before `+` and `−`), decimals, percent, sign toggle,
 and backspace. The expression builds up above the display and stays visible
 with the result after `=`, so `42 × 3 + 7` reads back exactly as it was entered.
 From the keyboard, `^` raises to a power ahead of everything else, so
-`2 × 3 ^ 2` gives `18`.
+`2 × 3 ^ 2` gives `18`. `r` takes a root at the same step, undoing `^`: the
+number after it is the root's index, so `25 √ 2` gives `5` and `27 √ 3` is the
+cube root of 27. An odd root of a negative number works, so `−8 √ 3` gives `−2`.
 
 Numbers are grouped with thousands separators as you type, in the display and
 the expression line alike, so `1234567.89` reads as `1,234,567.89`. The
@@ -24,12 +26,12 @@ fraction is left ungrouped.
 
 Percent follows the familiar calculator convention: with a pending `+` or `−`
 it takes that percentage of the running total (`200 + 10 % =` gives `220`),
-while with `×`, `÷`, or `^` — or on its own — it simply divides by 100.
+while with `×`, `÷`, `^`, or `√` — or on its own — it simply divides by 100.
 
 Everything works from the keyboard too:
 
-- `0-9`, `.`, `+`, `-`, `*` or `x`, `/`, `^`, and `%` enter digits and operators.
-  The numpad enters digits whether or not NumLock is on.
+- `0-9`, `.`, `+`, `-`, `*` or `x`, `/`, `^`, `r` or `√`, and `%` enter digits
+  and operators. The numpad enters digits whether or not NumLock is on.
 - `Enter` or `=` calculates.
 - `Backspace` deletes the last digit.
 - `C` or `Escape` clears.

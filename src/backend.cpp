@@ -18,6 +18,7 @@ const QString minusSign = QStringLiteral("−");
 const QString multiplySign = QStringLiteral("×");
 const QString divideSign = QStringLiteral("÷");
 const QString powerSign = QStringLiteral("^");
+const QString rootSign = QStringLiteral("√");
 
 // A leading # is a bare hex color rather than a comment.
 QString withoutTomlComment(const QString &text) {
@@ -45,7 +46,7 @@ QString withoutTomlComment(const QString &text) {
 bool isOperator(const QString &token) {
     return token == plusSign || token == minusSign
         || token == multiplySign || token == divideSign
-        || token == powerSign;
+        || token == powerSign || token == rootSign;
 }
 
 // Digits are entered raw, so "5." and "-" can linger while typing. Seal them
@@ -63,6 +64,34 @@ QString sealNumber(const QString &entry) {
 // 1e-07. It is a whole value: typing must not edit its exponent.
 bool inExponentForm(const QString &entry) {
     return entry.contains(QLatin1Char('e'));
+}
+
+// The index-th root of the radicand, so 27 √ 3 is 3. False when there is no
+// real root: a zero index, an even or fractional root of a negative number, or
+// a result out of range.
+bool nthRoot(double radicand, double index, double *root) {
+    if (index == 0)
+        return false;
+    // An odd whole index does have a root of a negative: −8 √ 3 is −2.
+    const bool negative = radicand < 0;
+    if (negative && (std::floor(index) != index || std::fmod(index, 2.0) == 0))
+        return false;
+
+    // 1 ÷ index is itself rounded, so in double the cube root of 64 comes out
+    // as 3.9999999999999996 and 64 √ 3 − 4 is not zero. Work in long double
+    // and round once at the end, the way a calculator carries guard digits:
+    // the extra bits land every exact root on the right double, and the wider
+    // exponent range keeps a tiny answer like 1e155 √ −0.5 from overflowing
+    // on the way.
+    double result = static_cast<double>(
+        std::pow(static_cast<long double>(std::fabs(radicand)), 1.0L / index));
+    if (negative)
+        result = -result;
+
+    if (!std::isfinite(result))
+        return false;
+    *root = result;
+    return true;
 }
 }
 
@@ -144,6 +173,8 @@ void Backend::pressKey(const QString &key) {
         pressOperator(divideSign);
     } else if (key == QStringLiteral("^")) {
         pressOperator(powerSign);
+    } else if (key == rootSign) {
+        pressOperator(rootSign);
     } else if (key == QStringLiteral("=")) {
         pressEquals();
     } else if (key == QStringLiteral("%")) {
@@ -389,23 +420,31 @@ double Backend::evaluateTokens(const QStringList &tokens, bool *ok) {
         values << operand;
     }
 
-    // Fold ^ right-to-left so 2 ^ 3 ^ 2 is 2^(3^2), not (2^3)^2. Then fold ×
-    // and ÷ left-to-right, then + and −.
+    // Fold ^ and √ right-to-left so 2 ^ 3 ^ 2 is 2^(3^2), not (2^3)^2, and
+    // 2 ^ 9 √ 2 raises 2 to the square root of 9. Then fold × and ÷
+    // left-to-right, then + and −.
     for (int i = operators.size() - 1; i >= 0; --i) {
-        if (operators.at(i) != powerSign)
+        const bool isRoot = operators.at(i) == rootSign;
+        if (!isRoot && operators.at(i) != powerSign)
             continue;
 
-        const double base = values.at(i);
-        const double exponent = values.at(i + 1);
-        // A negative base with a fractional exponent has no real result.
-        if (base < 0.0 && std::floor(exponent) != exponent)
-            return 0;
+        double folded = 0;
+        if (isRoot) {
+            if (!nthRoot(values.at(i), values.at(i + 1), &folded))
+                return 0;
+        } else {
+            const double base = values.at(i);
+            const double exponent = values.at(i + 1);
+            // A negative base with a fractional exponent has no real result.
+            if (base < 0.0 && std::floor(exponent) != exponent)
+                return 0;
 
-        const double powered = std::pow(base, exponent);
-        if (!std::isfinite(powered))
-            return 0;
+            folded = std::pow(base, exponent);
+            if (!std::isfinite(folded))
+                return 0;
+        }
 
-        values[i] = powered;
+        values[i] = folded;
         values.removeAt(i + 1);
         operators.removeAt(i);
     }
