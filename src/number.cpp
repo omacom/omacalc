@@ -254,11 +254,14 @@ std::optional<Number> Number::wholePower(const mpq_class &base, const mpz_class 
     if (abs(base) == 1)
         return Number(base > 0 || mpz_even_p(exponent.get_mpz_t()) ? 1 : -1);
 
-    // The exact power's numerator and denominator have at most
-    // count × widest bits; past kMaxExactBits it would be rounded anyway.
+    // Work the power out exactly whenever its fraction could fit in
+    // kMaxExactBits, and let fromFraction round it only if it doesn't. The
+    // widest part has at least count × (widest − 1) + 1 bits once raised, so
+    // one that fits has count × widest under twice kMaxExactBits: 1.5 ^ 32769
+    // (51,938 bits over 32,770) stays exact. Past that, nothing is built.
     const mpz_class count = abs(exponent);
     const unsigned long widest = std::max(bitLength(base.get_num()), bitLength(base.get_den()));
-    if (count.fits_ulong_p() && count.get_ui() <= kMaxExactBits / widest) {
+    if (count.fits_ulong_p() && count.get_ui() <= 2 * kMaxExactBits / widest) {
         mpz_class numerator;
         mpz_class denominator;
         mpz_pow_ui(numerator.get_mpz_t(), base.get_num().get_mpz_t(), count.get_ui());

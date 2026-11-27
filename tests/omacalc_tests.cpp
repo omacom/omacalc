@@ -608,6 +608,11 @@ private slots:
         press(calculator, "clear 3 ^ 2 0 0 0 0 =");
         QCOMPARE(calculator.display(), QStringLiteral("2.66130342721742e+9542"));
 
+        // Only a fraction that outgrows the limit is rounded: 1.5 ^ 32769 is
+        // 51,938 bits over 32,770, which fits, so it cancels exactly.
+        press(calculator, "clear 1 . 5 ^ 3 2 7 6 9 - 1 . 5 ^ 3 2 7 6 8 × 1 . 5 =");
+        QCOMPARE(calculator.display(), QStringLiteral("0"));
+
         // A negative base keeps its sign through an odd power, exact or not.
         press(calculator, "clear 1 sign ^ 3 =");
         QCOMPARE(calculator.display(), QStringLiteral("-1"));
