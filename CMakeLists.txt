@@ -10,6 +10,9 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 DBus Test)
+# Exact fractions (GMP) and the few results that need rounding (MPFR).
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(ExactMath REQUIRED IMPORTED_TARGET gmpxx gmp mpfr)
 
 # Everything but main.cpp, shared by the app and the tests, so each source
 # compiles once and a new file in src/ needs no line here.
@@ -18,7 +21,8 @@ list(REMOVE_ITEM omacalc_sources ${CMAKE_SOURCE_DIR}/src/main.cpp)
 add_library(omacalc_core STATIC ${omacalc_sources})
 target_include_directories(omacalc_core PUBLIC src)
 target_link_libraries(omacalc_core PUBLIC
-  Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::DBus)
+  Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::DBus
+  PkgConfig::ExactMath)
 target_compile_options(omacalc_core PUBLIC -Wall -Wextra)
 
 add_executable(omacalc src/main.cpp src/resources.qrc)
@@ -29,3 +33,10 @@ add_executable(omacalc_tests tests/omacalc_tests.cpp)
 target_link_libraries(omacalc_tests PRIVATE omacalc_core Qt6::Test)
 add_test(NAME omacalc_tests COMMAND omacalc_tests)
 set_tests_properties(omacalc_tests PROPERTIES ENVIRONMENT QT_QPA_PLATFORM=offscreen)
+
+# Random calculations held against an independent model; see the top of
+# tests/fuzz_tests.cpp for running it longer.
+add_executable(omacalc_fuzz tests/fuzz_tests.cpp tests/reference.cpp tests/reference.h)
+target_link_libraries(omacalc_fuzz PRIVATE omacalc_core Qt6::Test)
+add_test(NAME omacalc_fuzz COMMAND omacalc_fuzz)
+set_tests_properties(omacalc_fuzz PROPERTIES ENVIRONMENT QT_QPA_PLATFORM=offscreen)
