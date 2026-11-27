@@ -26,6 +26,15 @@ Percent follows the familiar calculator convention: with a pending `+` or `−`
 it takes that percentage of the running total (`200 + 10 % =` gives `220`),
 while with `×`, `÷`, or `^` — or on its own — it simply divides by 100.
 
+Every number is held as an exact fraction, so `0.1 + 0.2 − 0.3` is `0`,
+`13373.54 − 13438.77` is `-65.23`, and `1 ÷ 3 × 3` is `1`. Only the display
+rounds, to 15 significant digits, half away from zero. A root is exact
+whenever its value is (`4 ^ 0.5` is `2`); an irrational one like `2 ^ 0.5`
+is carried to about 77 digits, as is a fraction too long to hold, like
+`1.0001 ^ 100000`. Results run from `1e-9999` to `9.99999999999999e+9999`;
+beyond that, dividing by zero, or a fractional power of a negative number
+shows `Error`.
+
 Everything works from the keyboard too:
 
 - `0-9`, `.`, `+`, `-`, `*` or `x`, `/`, `^`, and `%` enter digits and operators.
@@ -44,6 +53,7 @@ and re-tint live when the theme changes. Text follows the desktop text size —
 ## Requirements
 
 - Qt 6: `qt6-base`, `qt6-declarative`
+- `gmp` and `mpfr` for exact arithmetic
 - `xdg-desktop-portal` and a portal backend
 
 The iA Writer Mono font is bundled under the SIL Open Font License 1.1; see
@@ -52,4 +62,4 @@ IBM Plex, copyright IBM Corp.
 
 ## Development
 
-`bin/build` compiles `build/omacalc` with CMake, and `bin/test` builds and runs the tests offscreen. Building needs `cmake`, `make`, and a C++ compiler on top of the Qt packages above. The package itself is built in [omarchy-pkgs](https://github.com/omacom/omarchy-pkgs/tree/master/pkgbuilds/omacalc).
+`bin/build` compiles `build/omacalc` with CMake, and `bin/test` builds and runs the tests offscreen. Building needs `cmake`, `make`, `pkgconf`, and a C++ compiler on top of the packages above. The package itself is built in [omarchy-pkgs](https://github.com/omacom/omarchy-pkgs/tree/master/pkgbuilds/omacalc).

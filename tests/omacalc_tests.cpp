@@ -101,7 +101,7 @@ private slots:
         press(calculator, ". 5 + . 2 5 =");
         QCOMPARE(calculator.display(), QStringLiteral("0.75"));
 
-        // Binary-float noise stays out of the display.
+        // Decimals are held exactly, so there is no binary-float noise.
         press(calculator, "clear 0 . 1 + 0 . 2 =");
         QCOMPARE(calculator.display(), QStringLiteral("0.3"));
 
@@ -135,7 +135,7 @@ private slots:
         QCOMPARE(calculator.display(), QStringLiteral("20"));
 
         press(calculator, "clear 2 ^ 1 0 % =");
-        QCOMPARE(calculator.display(), Backend::formatNumber(std::pow(2.0, 0.1)));
+        QCOMPARE(calculator.display(), QStringLiteral("1.07177346253629"));
 
         press(calculator, "clear 5 0 %");
         QCOMPARE(calculator.display(), QStringLiteral("0.5"));
@@ -236,15 +236,24 @@ private slots:
     void percentOfAHugeTotal() {
         Backend calculator;
 
-        // 1e308 is near the largest double; taking 100 % of it must not
-        // overflow on the way there.
-        press(calculator, "1 0 ^ 3 0 8 = - 1 0 0 % =");
+        // 1e9999 is the largest power of ten the display holds; taking 100 %
+        // of it must not overflow on the way there.
+        press(calculator, "1 0 ^ 9 9 9 9 = - 1 0 0 % =");
         QCOMPARE(calculator.display(), QStringLiteral("0"));
 
-        // A percentage beyond any double is an error, not an "inf" entry.
-        press(calculator, "clear 1 0 ^ 3 0 8 = + 1 0 0 0 %");
+        // The percentage itself must fit; the product on the way need not.
+        press(calculator, "clear 1 0 ^ 9 9 9 9 = + 5 0 %");
+        QCOMPARE(calculator.display(), QStringLiteral("5e+9998"));
+
+        // A percentage beyond the display's range is an error.
+        press(calculator, "clear 1 0 ^ 9 9 9 9 = + 1 0 0 0 %");
         QCOMPARE(calculator.display(), QStringLiteral("Error"));
-        QCOMPARE(calculator.expression(), QStringLiteral("1e+308 + 1,000 %"));
+        QCOMPARE(calculator.expression(), QStringLiteral("1e+9999 + 1,000 %"));
+
+        // So is one that is too small, even straight after a result.
+        press(calculator, "clear 1 0 ^ 9 9 9 9 sign = %");
+        QCOMPARE(calculator.display(), QStringLiteral("Error"));
+        QCOMPARE(calculator.expression(), QStringLiteral("1e-9999 %"));
     }
 
     void chainsFromResult() {
@@ -341,21 +350,22 @@ private slots:
     }
 
     void evaluatesTokens() {
-        bool ok = false;
-        QCOMPARE(Backend::evaluateTokens({"2", "+", "3", "×", "4"}, &ok), 14.0);
-        QVERIFY(ok);
+        const auto evaluate = [](const QStringList &pieces) -> QString {
+            QList<Backend::Token> tokens;
+            for (const QString &piece : pieces) {
+                const std::optional<Number> number = Number::parse(piece);
+                tokens << (number ? Backend::Token::value(*number) : Backend::Token::operation(piece));
+            }
+            const std::optional<Number> result = Backend::evaluate(tokens);
+            return result ? result->toString() : QStringLiteral("Error");
+        };
 
-        QCOMPARE(Backend::evaluateTokens({"2", "^", "3"}, &ok), 8.0);
-        QVERIFY(ok);
-
-        QCOMPARE(Backend::evaluateTokens({"2", "^", "3", "^", "2"}, &ok), 512.0);
-        QVERIFY(ok);
-
-        Backend::evaluateTokens({"2", "+"}, &ok);
-        QVERIFY(!ok);
-
-        Backend::evaluateTokens({"1", "÷", "0"}, &ok);
-        QVERIFY(!ok);
+        QCOMPARE(evaluate({"2", "+", "3", "×", "4"}), QStringLiteral("14"));
+        QCOMPARE(evaluate({"2", "^", "3"}), QStringLiteral("8"));
+        QCOMPARE(evaluate({"2", "^", "3", "^", "2"}), QStringLiteral("512"));
+        QCOMPARE(evaluate({"2", "+"}), QStringLiteral("Error"));
+        QCOMPARE(evaluate({"1", "÷", "0"}), QStringLiteral("Error"));
+        QCOMPARE(evaluate({"2", "2"}), QStringLiteral("Error"));
     }
 
     void opensAtTheDesignSizeForTheTextScale() {
@@ -467,10 +477,211 @@ private slots:
     }
 
     void formatsNumbers() {
-        QCOMPARE(Backend::formatNumber(133), QStringLiteral("133"));
-        QCOMPARE(Backend::formatNumber(0.1 + 0.2), QStringLiteral("0.3"));
-        QCOMPARE(Backend::formatNumber(-0.0), QStringLiteral("0"));
-        QCOMPARE(Backend::formatNumber(1e15), QStringLiteral("1e+15"));
+        const auto format = [](const char *text) {
+            const std::optional<Number> number = Number::parse(QString::fromLatin1(text));
+            return number ? number->toString() : QStringLiteral("refused");
+        };
+
+        QCOMPARE(format("133"), QStringLiteral("133"));
+        QCOMPARE(format("-0"), QStringLiteral("0"));
+        QCOMPARE(format("1e15"), QStringLiteral("1e+15"));
+        QCOMPARE(format("123456789012345"), QStringLiteral("123456789012345"));
+        QCOMPARE(format("0.0001"), QStringLiteral("0.0001"));
+        QCOMPARE(format("0.00001"), QStringLiteral("1e-05"));
+        QCOMPARE(format("-1.50e+20"), QStringLiteral("-1.5e+20"));
+        QCOMPARE(format(".5"), QStringLiteral("0.5"));
+        QCOMPARE(format("5."), QStringLiteral("5"));
+        QCOMPARE(format("+7"), QStringLiteral("7"));
+
+        // Sixteen digits round to fifteen, half away from zero, carrying
+        // into a new leading digit when they must.
+        QCOMPARE(format("1.234567890123455"), QStringLiteral("1.23456789012346"));
+        QCOMPARE(format("-1.234567890123455"), QStringLiteral("-1.23456789012346"));
+        QCOMPARE(format("1.234567890123454999"), QStringLiteral("1.23456789012345"));
+        QCOMPARE(format("9.999999999999995"), QStringLiteral("10"));
+        QCOMPARE(format("999999999999999.5"), QStringLiteral("1e+15"));
+
+        // The display's range ends at exponents of ±9999.
+        QCOMPARE(format("9.99999999999999e9999"), QStringLiteral("9.99999999999999e+9999"));
+        QCOMPARE(format("1e-9999"), QStringLiteral("1e-9999"));
+        QCOMPARE(format("9.999999999999995e9999"), QStringLiteral("refused"));
+        QCOMPARE(format("1e10000"), QStringLiteral("refused"));
+        QCOMPARE(format("9e-10000"), QStringLiteral("refused"));
+        QCOMPARE(format("9.999999999999995e-10000"), QStringLiteral("1e-9999"));
+        QCOMPARE(format("1e999999999"), QStringLiteral("refused"));
+        QCOMPARE(format("0e999999999"), QStringLiteral("0"));
+
+        QCOMPARE(format(""), QStringLiteral("refused"));
+        QCOMPARE(format("."), QStringLiteral("refused"));
+        QCOMPARE(format("-"), QStringLiteral("refused"));
+        QCOMPARE(format("1e"), QStringLiteral("refused"));
+        QCOMPARE(format("inf"), QStringLiteral("refused"));
+        QCOMPARE(format("nan"), QStringLiteral("refused"));
+        QCOMPARE(format("0x10"), QStringLiteral("refused"));
+        QCOMPARE(format("1.2.3"), QStringLiteral("refused"));
+    }
+
+    // The calculations that used to show binary-float noise.
+    void calculatesExactly() {
+        Backend calculator;
+        press(calculator, "1 3 3 7 3 . 5 4 - 1 3 4 3 8 . 7 7 =");
+        QCOMPARE(calculator.display(), QStringLiteral("-65.23"));
+
+        press(calculator, "clear 0 . 1 + 0 . 2 - 0 . 3 =");
+        QCOMPARE(calculator.display(), QStringLiteral("0"));
+
+        press(calculator, "clear 1 0 0 0 0 0 0 . 1 - 1 0 0 0 0 0 0 =");
+        QCOMPARE(calculator.display(), QStringLiteral("0.1"));
+
+        press(calculator, "clear 1 . 1 5 × 1 0 0 - 1 1 5 =");
+        QCOMPARE(calculator.display(), QStringLiteral("0"));
+
+        press(calculator, "clear 1 ÷ 3 × 3 - 1 =");
+        QCOMPARE(calculator.display(), QStringLiteral("0"));
+
+        press(calculator, "clear 1 ÷ 7 = × 7 - 1 =");
+        QCOMPARE(calculator.display(), QStringLiteral("0"));
+
+        press(calculator, "clear 1 ÷ 3 + 1 0 % =");
+        QCOMPARE(calculator.display(), QStringLiteral("0.366666666666667"));
+
+        // Ties round away from zero, the way a calculator is expected to,
+        // where binary rounding would have kept 100,000,000,000,000.
+        press(calculator, "clear 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 + . 5 =");
+        QCOMPARE(calculator.display(), QStringLiteral("100,000,000,000,001"));
+    }
+
+    void findsExactRoots() {
+        Backend calculator;
+        const QList<QPair<const char *, const char *>> roots = {
+            {"4 ^ . 5 - 2 =", "0"},
+            {"0 . 2 5 ^ . 5 =", "0.5"},
+            {"1 . 2 1 ^ . 5 =", "1.1"},
+            {"1 . 2 1 ^ . 5 - 1 . 1 =", "0"},
+            {"3 2 ^ . 2 =", "2"},
+            {"1 6 ^ . 7 5 =", "8"},
+            {"4 ^ . 5 sign =", "0.5"},
+            {"4 ^ 1 . 5 =", "8"},
+            {"0 ^ . 5 =", "0"},
+            {"1 ^ . 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 =", "1"},
+            {"1 0 0 0 0 0 0 ^ . 5 =", "1,000"},
+        };
+        for (const auto &[keys, expected] : roots) {
+            press(calculator, QStringLiteral("clear ") + QString::fromLatin1(keys));
+            QCOMPARE(calculator.display(), QString::fromLatin1(expected));
+        }
+    }
+
+    void approximatesIrrationalRoots() {
+        Backend calculator;
+        press(calculator, "2 ^ . 5 =");
+        QCOMPARE(calculator.display(), QStringLiteral("1.4142135623731"));
+
+        press(calculator, "^ 2 =");
+        QCOMPARE(calculator.display(), QStringLiteral("2"));
+
+        press(calculator, "clear 2 ^ . 5 ^ 2 =");
+        QCOMPARE(calculator.display(), QStringLiteral("1.18920711500272"));
+
+        // An irrational root is held to about 77 digits, so its leftover
+        // after cancelling is that small, and never shows as a wrong digit.
+        press(calculator, "clear 2 ^ . 5 × 2 ^ . 5 - 2 =");
+        const std::optional<Number> leftover = calculator.value();
+        QVERIFY(leftover);
+        QVERIFY(abs(leftover->fraction()) < mpq_class(1, mpz_class("1" + std::string(70, '0'))));
+    }
+
+    void approximatesHugePowers() {
+        Backend calculator;
+
+        // Far too long to hold exactly, so carried to about 77 digits.
+        press(calculator, "1 . 0 0 0 1 ^ 1 0 0 0 0 0 =");
+        QCOMPARE(calculator.display(), QStringLiteral("22,015.4560485522"));
+
+        press(calculator, "clear 1 + 0 . 0 5 ÷ 3 6 5 = ^ 1 0 9 5 0 =");
+        QCOMPARE(calculator.display(), QStringLiteral("4.48122868852452"));
+
+        // (1 + 1/n)^n approaches e; binary floats lose it entirely.
+        press(calculator, "clear 1 + 0 . 0 0 0 0 0 0 0 0 0 0 0 0 0 1 = ^ 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 =");
+        QCOMPARE(calculator.display(), QStringLiteral("2.71828182845903"));
+
+        press(calculator, "clear 3 ^ 2 0 0 0 0 =");
+        QCOMPARE(calculator.display(), QStringLiteral("2.66130342721742e+9542"));
+
+        // A negative base keeps its sign through an odd power, exact or not.
+        press(calculator, "clear 1 sign ^ 3 =");
+        QCOMPARE(calculator.display(), QStringLiteral("-1"));
+        press(calculator, "clear 1 sign ^ 1 2 3 4 5 6 7 8 9 0 1 2 3 4 4 =");
+        QCOMPARE(calculator.display(), QStringLiteral("1"));
+        press(calculator, "clear 1 . 0 0 0 1 sign ^ 1 0 0 0 0 1 =");
+        QCOMPARE(calculator.display(), QStringLiteral("-22,017.6575941571"));
+        press(calculator, "clear 1 . 1 5 sign ^ 9 9 9 9 9 =");
+        QCOMPARE(calculator.display(), QStringLiteral("-5.28856103411283e+6069"));
+    }
+
+    void staysWithinTheDisplayRange() {
+        Backend calculator;
+        press(calculator, "1 0 ^ 9 9 9 9 =");
+        QCOMPARE(calculator.display(), QStringLiteral("1e+9999"));
+        press(calculator, "× 1 0 =");
+        QCOMPARE(calculator.display(), QStringLiteral("Error"));
+
+        press(calculator, "clear 1 0 ^ 9 9 9 9 sign =");
+        QCOMPARE(calculator.display(), QStringLiteral("1e-9999"));
+        press(calculator, "÷ 1 0 =");
+        QCOMPARE(calculator.display(), QStringLiteral("Error"));
+
+        // Every number along the way must fit, as with a hardware calculator.
+        press(calculator, "clear 1 0 ^ 9 9 9 9 = × 1 0 ÷ 1 0 =");
+        QCOMPARE(calculator.display(), QStringLiteral("Error"));
+    }
+
+    void refusesHugePowersQuickly() {
+        Backend calculator;
+        QElapsedTimer timer;
+        timer.start();
+        const QStringList hopeless = {
+            "2 ^ 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 =",
+            "0 . 5 ^ 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 =",
+            "1 . 0 0 0 0 0 0 1 ^ 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 =",
+            "2 ^ . 5 ^ 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 =",
+            "9 ^ 9 ^ 9 =",
+        };
+        for (const QString &keys : hopeless) {
+            press(calculator, QStringLiteral("clear ") + keys);
+            QCOMPARE(calculator.display(), QStringLiteral("Error"));
+        }
+        QVERIFY2(timer.elapsed() < 2000, qPrintable(QString::number(timer.elapsed()) + " ms"));
+    }
+
+    // Starting an edit from a result, a percent or a paste keeps every digit
+    // until a digit is changed.
+    void keepsExactValuesWhileEditing() {
+        Backend calculator;
+        press(calculator, "1 ÷ 3 = sign × 3 =");
+        QCOMPARE(calculator.display(), QStringLiteral("-1"));
+
+        press(calculator, "clear 1 ÷ 3 = % × 3 0 0 =");
+        QCOMPARE(calculator.display(), QStringLiteral("1"));
+
+        press(calculator, "clear 2 ÷ 3 = .");
+        QCOMPARE(calculator.display(), QStringLiteral("0."));
+
+        // Backspace edits the digits shown, which then are the number.
+        press(calculator, "clear 1 ÷ 3 = backspace × 3 =");
+        QCOMPARE(calculator.display(), QStringLiteral("0.99999999999999"));
+
+        QClipboard *clipboard = QGuiApplication::clipboard();
+        clipboard->setText(QStringLiteral("0.1000000000000000001"));
+        press(calculator, "clear");
+        calculator.pasteNumber();
+        QCOMPARE(calculator.display(), QStringLiteral("0.1"));
+        press(calculator, "- . 1 =");
+        QCOMPARE(calculator.display(), QStringLiteral("1e-19"));
+
+        clipboard->setText(QStringLiteral("1e10000"));
+        calculator.pasteNumber();
+        QCOMPARE(calculator.display(), QStringLiteral("1e-19"));
     }
 
     void loadsCurrentOmarchyTheme() {

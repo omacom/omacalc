@@ -5,7 +5,6 @@
 #include <QDir>
 #include <QFile>
 #include <QGuiApplication>
-#include <QLocale>
 #include <QRegularExpression>
 #include <QSettings>
 #include <QTextStream>
@@ -102,35 +101,59 @@ QString Backend::plainDisplay() const {
         return m_entry;
     if (m_justEvaluated)
         return m_result;
-    return formatNumber(QLocale::c().toDouble(currentValue()));
+    return currentValue().toString();
 }
 
-// Operand tokens carry full round-trip precision when they come from a chained
-// result; present every number at display precision instead.
-QString Backend::prettyExpression(const QStringList &tokens) {
+std::optional<Number> Backend::value() const {
+    if (m_errored)
+        return std::nullopt;
+    if (m_justEvaluated)
+        return m_resultValue;
+    return currentValue();
+}
+
+// Operands are exact, so a chained 1 ÷ 3 is held as one third; present every
+// number at display precision instead.
+QString Backend::prettyExpression(const QList<Token> &tokens) {
     QStringList pretty;
     pretty.reserve(tokens.size());
-    for (const QString &token : tokens)
-        pretty << (isOperator(token)
-                       ? token
-                       : groupDigits(formatNumber(QLocale::c().toDouble(token))));
+    for (const Token &token : tokens)
+        pretty << (token.isOperator() ? token.op : groupDigits(token.number.toString()));
     return pretty.join(QLatin1Char(' '));
 }
 
 // The number the calculator is "at" right now: the entry being typed, or the
 // operand the last operator was applied to, or the fresh-start zero.
-QString Backend::currentValue() const {
+Number Backend::currentValue() const {
     if (!m_entry.isEmpty())
-        return sealNumber(m_entry);
+        return m_entryValue;
     for (int i = m_tokens.size() - 1; i >= 0; --i) {
-        if (!isOperator(m_tokens.at(i)))
-            return m_tokens.at(i);
+        if (!m_tokens.at(i).isOperator())
+            return m_tokens.at(i).number;
     }
-    return QStringLiteral("0");
+    return Number();
+}
+
+// Typing makes the text the number: "5." is 5 and "-0" is 0.
+void Backend::setEntryText(const QString &text) {
+    m_entry = text;
+    m_entryValue = Number::parse(sealNumber(text)).value_or(Number());
+}
+
+void Backend::setEntryValue(const Number &number) {
+    m_entry = number.toString();
+    m_entryValue = number;
+}
+
+void Backend::clearEntry() {
+    m_entry.clear();
+    m_entryValue = Number();
 }
 
 void Backend::pressKey(const QString &key) {
-    if (key.size() == 1 && key.at(0).isDigit()) {
+    // ASCII digits only: QChar::isDigit() also takes ٣ and other scripts'
+    // digits, which would sit in the entry as text the math reads as 0.
+    if (key.size() == 1 && key.at(0) >= QLatin1Char('0') && key.at(0) <= QLatin1Char('9')) {
         pressDigit(key);
     } else if (key == QStringLiteral(".")) {
         pressDecimal();
@@ -169,31 +192,29 @@ void Backend::pressDigit(const QString &digit) {
         // appending to the result.
         pressClear();
     }
-    if (inExponentForm(m_entry))
-        m_entry.clear();
 
-    if (m_entry == QStringLiteral("0")) {
-        m_entry = digit;
-        return;
+    QString entry = inExponentForm(m_entry) ? QString() : m_entry;
+    if (entry == QStringLiteral("0")) {
+        entry = digit;
+    } else if (entry == QStringLiteral("-0")) {
+        entry = QStringLiteral("-") + digit;
+    } else {
+        // Fifteen significant digits is what the display shows; letting the
+        // entry grow beyond that would hide what was typed. The zero in a
+        // leading "0." is not significant, so it does not count.
+        int digits = 0;
+        for (const QChar character : entry) {
+            if (character.isDigit())
+                ++digits;
+        }
+        if (entry.startsWith(QStringLiteral("0."))
+                || entry.startsWith(QStringLiteral("-0.")))
+            --digits;
+        if (digits < Number::kDisplayDigits)
+            entry += digit;
     }
-    if (m_entry == QStringLiteral("-0")) {
-        m_entry = QStringLiteral("-") + digit;
-        return;
-    }
-
-    // Fifteen significant digits is what the display format preserves; letting
-    // the entry grow beyond that would silently round what was typed. The
-    // zero in a leading "0." is not significant, so it does not count.
-    int digits = 0;
-    for (const QChar character : m_entry) {
-        if (character.isDigit())
-            ++digits;
-    }
-    if (m_entry.startsWith(QStringLiteral("0."))
-            || m_entry.startsWith(QStringLiteral("-0.")))
-        --digits;
-    if (digits < 15)
-        m_entry += digit;
+    if (entry != m_entry)
+        setEntryText(entry);
 }
 
 void Backend::pressDecimal() {
@@ -201,13 +222,14 @@ void Backend::pressDecimal() {
         pressClear();
     if (m_justEvaluated)
         pressClear();
-    if (inExponentForm(m_entry))
-        m_entry.clear();
 
-    if (m_entry.isEmpty())
-        m_entry = QStringLiteral("0.");
-    else if (!m_entry.contains(QLatin1Char('.')))
-        m_entry += QLatin1Char('.');
+    QString entry = inExponentForm(m_entry) ? QString() : m_entry;
+    if (entry.isEmpty())
+        entry = QStringLiteral("0.");
+    else if (!entry.contains(QLatin1Char('.')))
+        entry += QLatin1Char('.');
+    if (entry != m_entry)
+        setEntryText(entry);
 }
 
 void Backend::pressOperator(const QString &pretty) {
@@ -215,22 +237,21 @@ void Backend::pressOperator(const QString &pretty) {
         return;
 
     if (m_justEvaluated) {
-        // Chain from the exact result value, not its rounded display text, so
-        // 1 ÷ 3 = × 3 comes back as 1. Seventeen significant digits round-trip
-        // any double; the expression line re-rounds them for presentation.
-        m_tokens = QStringList(QString::number(m_resultValue, 'g', 17));
+        // Chain from the exact result, not its rounded display text, so
+        // 1 ÷ 3 = × 3 comes back as exactly 1.
+        m_tokens = {Token::value(m_resultValue)};
         clearEvaluation();
     }
 
     if (!m_entry.isEmpty()) {
-        m_tokens << sealNumber(m_entry) << pretty;
-        m_entry.clear();
+        m_tokens << Token::value(m_entryValue) << Token::operation(pretty);
+        clearEntry();
     } else if (m_tokens.isEmpty()) {
-        m_tokens << QStringLiteral("0") << pretty;
-    } else if (isOperator(m_tokens.last())) {
-        m_tokens.last() = pretty;
+        m_tokens << Token::value(Number()) << Token::operation(pretty);
+    } else if (m_tokens.last().isOperator()) {
+        m_tokens.last().op = pretty;
     } else {
-        m_tokens << pretty;
+        m_tokens << Token::operation(pretty);
     }
 }
 
@@ -238,26 +259,25 @@ void Backend::pressEquals() {
     if (m_errored || m_justEvaluated)
         return;
 
-    QStringList finalTokens = m_tokens;
+    QList<Token> finalTokens = m_tokens;
     if (!m_entry.isEmpty())
-        finalTokens << sealNumber(m_entry);
-    while (!finalTokens.isEmpty() && isOperator(finalTokens.last()))
+        finalTokens << Token::value(m_entryValue);
+    while (!finalTokens.isEmpty() && finalTokens.last().isOperator())
         finalTokens.removeLast();
     if (finalTokens.isEmpty())
         return;
 
     m_evaluatedExpression = prettyExpression(finalTokens);
-    bool ok = false;
-    const double value = evaluateTokens(finalTokens, &ok);
-    if (!ok) {
+    const std::optional<Number> result = evaluate(finalTokens);
+    if (!result) {
         m_errored = true;
     } else {
-        m_resultValue = value;
-        m_result = formatNumber(value);
+        m_resultValue = *result;
+        m_result = result->toString();
         m_justEvaluated = true;
     }
     m_tokens.clear();
-    m_entry.clear();
+    clearEntry();
 }
 
 // iOS-style percent: with a pending + or −, x% means x percent of the running
@@ -267,41 +287,25 @@ void Backend::pressPercent() {
     if (m_errored)
         return;
 
-    if (m_justEvaluated) {
-        const double percent = m_resultValue / 100.0;
+    const Number value = m_justEvaluated ? m_resultValue : currentValue();
+    if (m_justEvaluated)
         clearEvaluation();
-        m_entry = formatNumber(percent);
-        return;
-    }
 
-    bool ok = false;
-    const double value = QLocale::c().toDouble(currentValue(), &ok);
-    if (!ok)
-        return;
-
-    double percent = value / 100.0;
-    if (!m_tokens.isEmpty() && (m_tokens.last() == plusSign || m_tokens.last() == minusSign)) {
-        QStringList leftSide = m_tokens;
-        leftSide.removeLast();
-        bool baseOk = false;
-        const double base = evaluateTokens(leftSide, &baseOk);
-        if (baseOk) {
-            percent = base * value / 100.0;
-            // 1e308 + 100 % overflows multiplying first; dividing first
-            // would round a tiny percentage, so only fall back to it.
-            if (!std::isfinite(percent))
-                percent = base * (value / 100.0);
-        }
+    std::optional<Number> percent = Number::percent(value);
+    if (!m_tokens.isEmpty() && (m_tokens.last().op == plusSign || m_tokens.last().op == minusSign)) {
+        const std::optional<Number> total = evaluate(m_tokens.mid(0, m_tokens.size() - 1));
+        if (total)
+            percent = Number::percent(value, *total);
     }
-    if (!std::isfinite(percent)) {
-        m_evaluatedExpression = prettyExpression(m_tokens + QStringList(currentValue()))
+    if (!percent) {
+        m_evaluatedExpression = prettyExpression(m_tokens + QList<Token>{Token::value(value)})
             + QStringLiteral(" %");
         m_errored = true;
         m_tokens.clear();
-        m_entry.clear();
+        clearEntry();
         return;
     }
-    m_entry = formatNumber(percent);
+    setEntryValue(*percent);
 }
 
 void Backend::pressToggleSign() {
@@ -313,10 +317,11 @@ void Backend::pressToggleSign() {
     // With nothing typed yet, start a fresh negative operand instead of
     // dredging up the previous one: 4 + ± 2 enters -2, not -42.
     if (m_entry.isEmpty()) {
-        m_entry = QStringLiteral("-0");
+        setEntryText(QStringLiteral("-0"));
         return;
     }
 
+    m_entryValue = m_entryValue.negated();
     if (m_entry.startsWith(QLatin1Char('-')))
         m_entry.remove(0, 1);
     else
@@ -331,62 +336,63 @@ void Backend::pressBackspace() {
     if (m_justEvaluated)
         beginEditingAfterResult();
     if (inExponentForm(m_entry)) {
-        m_entry = QStringLiteral("0");
+        setEntryText(QStringLiteral("0"));
         return;
     }
 
-    m_entry.chop(1);
-    if (m_entry == QStringLiteral("-"))
-        m_entry.clear();
+    QString entry = m_entry;
+    entry.chop(1);
+    if (entry == QStringLiteral("-"))
+        entry.clear();
+    if (entry.isEmpty())
+        clearEntry();
+    else
+        setEntryText(entry);
 }
 
 void Backend::pressClear() {
     m_tokens.clear();
-    m_entry.clear();
+    clearEntry();
     clearEvaluation();
     m_errored = false;
 }
 
 // Editing after equals picks up from the result's displayed digits, with the
 // old expression cleared away so the new one grows from "42" rather than
-// "42 × 3 + 7".
+// "42 × 3 + 7". The exact result stays behind the digits until they change,
+// so ± on 1 ÷ 3 = is exactly minus one third.
 void Backend::beginEditingAfterResult() {
     m_entry = m_result;
+    m_entryValue = m_resultValue;
     m_tokens.clear();
     clearEvaluation();
 }
 
 void Backend::clearEvaluation() {
     m_result.clear();
-    m_resultValue = 0;
+    m_resultValue = Number();
     m_evaluatedExpression.clear();
     m_justEvaluated = false;
 }
 
-double Backend::evaluateTokens(const QStringList &tokens, bool *ok) {
-    bool localOk = false;
-    if (!ok)
-        ok = &localOk;
-
-    *ok = false;
+std::optional<Number> Backend::evaluate(const QList<Token> &tokens) {
     if (tokens.size() % 2 == 0)
-        return 0;
+        return std::nullopt;
 
-    QList<double> values;
+    QList<Number> values;
     QStringList operators;
-
-    bool numberOk = false;
-    values << QLocale::c().toDouble(tokens.first(), &numberOk);
-    if (!numberOk)
-        return 0;
-
-    for (int i = 1; i + 1 < tokens.size(); i += 2) {
-        const QString &op = tokens.at(i);
-        const double operand = QLocale::c().toDouble(tokens.at(i + 1), &numberOk);
-        if (!numberOk || !isOperator(op))
-            return 0;
-        operators << op;
-        values << operand;
+    for (int i = 0; i < tokens.size(); ++i) {
+        const Token &token = tokens.at(i);
+        const bool operatorExpected = i % 2 == 1;
+        if (token.isOperator() != operatorExpected)
+            return std::nullopt;
+        if (operatorExpected) {
+            if (!isOperator(token.op))
+                return std::nullopt;
+            operators << token.op;
+        } else {
+            values << token.number;
+        }
     }
 
     // Fold ^ right-to-left so 2 ^ 3 ^ 2 is 2^(3^2), not (2^3)^2. Then fold ×
@@ -395,61 +401,44 @@ double Backend::evaluateTokens(const QStringList &tokens, bool *ok) {
         if (operators.at(i) != powerSign)
             continue;
 
-        const double base = values.at(i);
-        const double exponent = values.at(i + 1);
-        // A negative base with a fractional exponent has no real result.
-        if (base < 0.0 && std::floor(exponent) != exponent)
-            return 0;
+        const std::optional<Number> powered = Number::power(values.at(i), values.at(i + 1));
+        if (!powered)
+            return std::nullopt;
 
-        const double powered = std::pow(base, exponent);
-        if (!std::isfinite(powered))
-            return 0;
-
-        values[i] = powered;
+        values[i] = *powered;
         values.removeAt(i + 1);
         operators.removeAt(i);
     }
 
-    QList<double> additiveValues;
-    QStringList additiveOperators;
-    additiveValues << values.first();
+    QList<Number> terms;
+    QStringList termOperators;
+    terms << values.first();
     for (int i = 0; i < operators.size(); ++i) {
         const QString &op = operators.at(i);
-        const double operand = values.at(i + 1);
-        if (op == multiplySign) {
-            additiveValues.last() *= operand;
-        } else if (op == divideSign) {
-            additiveValues.last() /= operand;
+        const Number &operand = values.at(i + 1);
+        if (op == multiplySign || op == divideSign) {
+            const std::optional<Number> product = op == multiplySign
+                ? Number::multiply(terms.last(), operand)
+                : Number::divide(terms.last(), operand);
+            if (!product)
+                return std::nullopt;
+            terms.last() = *product;
         } else {
-            additiveOperators << op;
-            additiveValues << operand;
+            termOperators << op;
+            terms << operand;
         }
     }
 
-    double total = additiveValues.first();
-    for (int i = 0; i < additiveOperators.size(); ++i) {
-        if (additiveOperators.at(i) == plusSign)
-            total += additiveValues.at(i + 1);
-        else
-            total -= additiveValues.at(i + 1);
+    Number total = terms.first();
+    for (int i = 0; i < termOperators.size(); ++i) {
+        const std::optional<Number> sum = termOperators.at(i) == plusSign
+            ? Number::add(total, terms.at(i + 1))
+            : Number::subtract(total, terms.at(i + 1));
+        if (!sum)
+            return std::nullopt;
+        total = *sum;
     }
-
-    if (!std::isfinite(total))
-        return 0;
-
-    *ok = true;
     return total;
-}
-
-QString Backend::formatNumber(double value) {
-    if (value == 0)
-        value = 0;  // Collapse negative zero.
-
-    // Fifteen significant digits keeps binary-float noise like
-    // 0.1 + 0.2 = 0.30000000000000004 out of the display while showing
-    // every integer the 15-digit entry limit can produce exactly; larger
-    // magnitudes fall back to scientific notation.
-    return QString::number(value, 'g', 15);
 }
 
 // Separates the whole-number digits into groups of three with commas, so
@@ -478,7 +467,8 @@ void Backend::copyResult() const {
 
 // Paste replaces the current entry when the clipboard holds a number,
 // tolerating surrounding whitespace, thousands separators, a decimal comma,
-// and the typographic minus this calculator itself puts in expressions.
+// and the typographic minus this calculator itself puts in expressions. The
+// display shows fifteen digits of it, and the calculation uses every digit.
 void Backend::pasteNumber() {
     const QClipboard *clipboard = QGuiApplication::clipboard();
     if (!clipboard)
@@ -496,18 +486,17 @@ void Backend::pasteNumber() {
     if (grouped.match(text).hasMatch())
         text.remove(QLatin1Char(','));
 
-    bool ok = false;
-    double value = QLocale::c().toDouble(text, &ok);
-    if (!ok) {
+    std::optional<Number> value = Number::parse(text);
+    if (!value) {
         text.replace(QLatin1Char(','), QLatin1Char('.'));
-        value = QLocale::c().toDouble(text, &ok);
+        value = Number::parse(text);
     }
-    if (!ok || !std::isfinite(value))
+    if (!value)
         return;
 
     if (m_errored || m_justEvaluated)
         pressClear();
-    m_entry = formatNumber(value);
+    setEntryValue(*value);
     emit calculationChanged();
 }
 

@@ -5,6 +5,9 @@
 #include <QString>
 #include <QStringList>
 #include <QVariantMap>
+#include <optional>
+
+#include "number.h"
 
 class Backend : public QObject {
     Q_OBJECT
@@ -32,9 +35,24 @@ public:
     QString themeAccent() const { return m_themeAccent; }
     QString themeSelection() const { return m_themeSelection; }
 
-    static double evaluateTokens(const QStringList &tokens, bool *ok);
-    static QString formatNumber(double value);
+    // One piece of an expression: a number, or an operator sign.
+    struct Token {
+        QString op;
+        Number number;
+
+        static Token value(const Number &number) { return {QString(), number}; }
+        static Token operation(const QString &op) { return {op, Number()}; }
+        bool isOperator() const { return !op.isEmpty(); }
+    };
+
+    // The value of number, operator, number, ... with ^ first (right to
+    // left), then × and ÷, then + and −. Nothing when any step is an error.
+    static std::optional<Number> evaluate(const QList<Token> &tokens);
     static QString groupDigits(const QString &number);
+
+    // The exact number behind the display, which shows it rounded to fifteen
+    // digits; nothing while the display shows Error.
+    std::optional<Number> value() const;
 
     Q_INVOKABLE void pressKey(const QString &key);
     Q_INVOKABLE void copyResult() const;
@@ -60,18 +78,26 @@ private:
     void pressClear();
 
     QString plainDisplay() const;
-    QString currentValue() const;
+    Number currentValue() const;
+    void setEntryText(const QString &text);
+    void setEntryValue(const Number &number);
+    void clearEntry();
     void beginEditingAfterResult();
     void clearEvaluation();
-    static QString prettyExpression(const QStringList &tokens);
+    static QString prettyExpression(const QList<Token> &tokens);
     void loadOmarchyTheme();
     void watchOmarchyTheme();
     void discardSavedWindowGeometry();
 
-    QStringList m_tokens;
+    QList<Token> m_tokens;
+    // The entry as typed, and its exact value. They differ only when the
+    // entry came from a percent, a paste, or a result: then the text shows
+    // fifteen digits and the value keeps them all, until a digit, point or
+    // backspace makes the text itself the number again.
     QString m_entry;
+    Number m_entryValue;
     QString m_result;
-    double m_resultValue = 0;
+    Number m_resultValue;
     QString m_evaluatedExpression;
     bool m_justEvaluated = false;
     bool m_errored = false;
