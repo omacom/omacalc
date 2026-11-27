@@ -73,6 +73,68 @@ private slots:
         QCOMPARE(calculator.display(), QStringLiteral("5"));
     }
 
+    void calculatesRoots() {
+        Backend calculator;
+
+        // √ undoes ^: the number after it is the index, so 27 √ 3 is the cube
+        // root of 27.
+        press(calculator, "2 7 √ 3 =");
+        QCOMPARE(calculator.display(), QStringLiteral("3"));
+        QCOMPARE(calculator.expression(), QStringLiteral("27 √ 3"));
+
+        press(calculator, "clear 9 √ 2 =");
+        QCOMPARE(calculator.display(), QStringLiteral("3"));
+
+        press(calculator, "clear 2 √ 2 =");
+        QCOMPARE(calculator.display(), Backend::formatNumber(std::sqrt(2.0)));
+
+        press(calculator, "clear 8 1 √ 4 =");
+        QCOMPARE(calculator.display(), QStringLiteral("3"));
+
+        // A result chains in as the number to take the root of.
+        press(calculator, "clear 3 ^ 2 + 4 ^ 2 = √ 2 =");
+        QCOMPARE(calculator.display(), QStringLiteral("5"));
+
+        // pow alone leaves these a hair off the whole number, which shows the
+        // moment the root is subtracted again or chained from.
+        press(calculator, "clear 6 4 √ 3 - 4 =");
+        QCOMPARE(calculator.display(), QStringLiteral("0"));
+
+        press(calculator, "clear 3 1 2 5 √ 5 = - 5 =");
+        QCOMPARE(calculator.display(), QStringLiteral("0"));
+
+        // √ sits with ^, ahead of × and ÷, and folds right-to-left with it.
+        press(calculator, "clear 2 × 2 7 √ 3 =");
+        QCOMPARE(calculator.display(), QStringLiteral("6"));
+
+        press(calculator, "clear 2 ^ 9 √ 2 =");
+        QCOMPARE(calculator.display(), QStringLiteral("8"));
+
+        press(calculator, "clear 2 5 6 √ 2 ^ 2 =");
+        QCOMPARE(calculator.display(), QStringLiteral("4"));
+
+        // An odd index takes the root of a negative number; an even one cannot.
+        press(calculator, "clear 8 sign √ 3 =");
+        QCOMPARE(calculator.display(), QStringLiteral("-2"));
+
+        press(calculator, "clear 4 sign √ 2 =");
+        QCOMPARE(calculator.display(), QStringLiteral("Error"));
+        QCOMPARE(calculator.expression(), QStringLiteral("-4 √ 2"));
+
+        // A fractional or negative index is a power in disguise.
+        press(calculator, "clear 3 √ 0 . 5 =");
+        QCOMPARE(calculator.display(), QStringLiteral("9"));
+
+        press(calculator, "clear 4 √ 2 sign =");
+        QCOMPARE(calculator.display(), QStringLiteral("0.5"));
+
+        press(calculator, "clear 9 √ 0 =");
+        QCOMPARE(calculator.display(), QStringLiteral("Error"));
+
+        press(calculator, "clear 0 √ 2 sign =");
+        QCOMPARE(calculator.display(), QStringLiteral("Error"));
+    }
+
     void calculatesWithPrecedence() {
         Backend calculator;
         press(calculator, "4 2 × 3 + 7 =");
@@ -136,6 +198,9 @@ private slots:
 
         press(calculator, "clear 2 ^ 1 0 % =");
         QCOMPARE(calculator.display(), Backend::formatNumber(std::pow(2.0, 0.1)));
+
+        press(calculator, "clear 4 √ 2 0 0 % =");
+        QCOMPARE(calculator.display(), QStringLiteral("2"));
 
         press(calculator, "clear 5 0 %");
         QCOMPARE(calculator.display(), QStringLiteral("0.5"));
@@ -350,6 +415,12 @@ private slots:
 
         QCOMPARE(Backend::evaluateTokens({"2", "^", "3", "^", "2"}, &ok), 512.0);
         QVERIFY(ok);
+
+        QCOMPARE(Backend::evaluateTokens({"27", "√", "3"}, &ok), 3.0);
+        QVERIFY(ok);
+
+        Backend::evaluateTokens({"-4", "√", "2"}, &ok);
+        QVERIFY(!ok);
 
         Backend::evaluateTokens({"2", "+"}, &ok);
         QVERIFY(!ok);
